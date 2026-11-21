@@ -426,9 +426,6 @@
   - id: tool-terminal
     name: '@deepseek-ai/dsh-tool-terminal'
 
-  - id: tui-command-terminal
-    name: '@agi-fans/dsh-tui/command-terminal'
-
   - id: agent-loop
     name: '@deepseek-ai/dsh-agent-loop'
     config:

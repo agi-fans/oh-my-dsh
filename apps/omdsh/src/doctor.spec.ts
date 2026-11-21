@@ -157,4 +157,13 @@ describe('doctor', () => {
     expect(failed.status, failed.stderr).toBe(1)
     expect(JSON.parse(failed.stdout).checks.find((check: { id: string }) => check.id === 'mcp-config').status).toBe('failed')
   })
+
+  it('honors injected options.environment for terminal-images detection', async () => {
+    const { cwd, home } = fixture()
+    const base = { version: '0.1.0', cwd, nodeVersion: 'v22.19.0', platform: process.platform, tty: true }
+    const enabled = await runDoctor({ ...base, environment: { ...process.env, OMDSH_HOME: home, OMDSH_IMAGE_PROTOCOL: 'kitty' } })
+    expect(enabled.checks.find(check => check.id === 'terminal-images')).toMatchObject({ status: 'ok', summary: expect.stringContaining('kitty') })
+    const disabled = await runDoctor({ ...base, environment: { PATH: process.env.PATH, OMDSH_HOME: home, OMDSH_IMAGE_PROTOCOL: 'none' } })
+    expect(disabled.checks.find(check => check.id === 'terminal-images')?.status).toBe('not-configured')
+  })
 })

@@ -515,3 +515,56 @@ describe('compact links', () => {
     }
   })
 })
+
+describe('streaming markdown prefix reuse', () => {
+  it('matches full renderMarkdown across incremental appends including late reference definitions', () => {
+    const theme = createTheme(true, 'truecolor', 'dark')
+    const chunks = [
+      '# Title\n\nSee [the guide][g] for details.\n\n',
+      'Paragraph two with **bold** and `code`.\n\n',
+      '- item one\n- item two\n\n',
+      '```ts\nconst x = 1\n```\n\n',
+      'Tail paragraph growing ',
+      'more words.\n\n',
+      '[g]: https://example.test/guide\n',
+    ]
+    let doc = ''
+    for (const chunk of chunks) {
+      doc += chunk
+      expect(renderStreamingMarkdown(doc, theme, 60)).toEqual(renderMarkdown(doc, theme, 60))
+    }
+  })
+
+  it('matches full renderMarkdown when reference definitions live inside blockquotes, lists, or cached prefixes', () => {
+    const theme = createTheme(true, 'truecolor', 'dark')
+    const cases = [
+      [
+        'See [x][id]\n\nPara 1.\n\nPara 2.\n\nPara 3.\n\nPara 4.\n\n',
+        '> [id]: https://example.test/from-quote\n',
+      ],
+      [
+        'See [x][id]\n\nPara 1.\n\nPara 2.\n\nPara 3.\n\nPara 4.\n\n',
+        '- [id]: https://example.test/from-list\n',
+      ],
+      [
+        '[id]: https://example.test/in-prefix\n\nPara 1.\n\nPara 2.\n\nPara 3.\n\nPara 4.\n\n',
+        'Now reference [x][id] in the tail.\n',
+      ],
+    ]
+    for (const sequence of cases) {
+      let doc = ''
+      for (const chunk of sequence) {
+        doc += chunk
+        expect(renderStreamingMarkdown(doc, theme, 60)).toEqual(renderMarkdown(doc, theme, 60))
+      }
+    }
+  })
+
+  it('does not reuse a frozen prefix across different responses that share a leading block', () => {
+    const theme = createTheme(true, 'truecolor', 'dark')
+    const first = '- first\n\nalpha\n\nomega'
+    const second = '- first\n\n  - second\n\nomega'
+    expect(renderStreamingMarkdown(first, theme, 60)).toEqual(renderMarkdown(first, theme, 60))
+    expect(renderStreamingMarkdown(second, theme, 60)).toEqual(renderMarkdown(second, theme, 60))
+  })
+})

@@ -37,9 +37,27 @@ async function run(ctx: Context, tui: TuiService, cancelled: AbortSignal): Promi
   if (cancelled.aborted) return
   void ctx.get('omdshStartup')?.afterSessionStart().catch(() => {})
   let operation: AbortController | undefined
+  let rewindOperation: AbortController | undefined
   let shellActive = false
-  // An unmount must also cancel an in-flight slash command, not just the read.
-  const onCancelled = (): void => { operation?.abort(new Error('runner unloaded')) }
+  const pendingQueueEdits = new Set<{ request: Parameters<TuiService['resolveQueueEdit']>[1]; settled: boolean }>()
+  const settlePendingQueueEdits = (): void => {
+    for (const entry of pendingQueueEdits) {
+      if (entry.settled) continue
+      entry.settled = true
+      tui.resolveQueueEdit(null, entry.request)
+    }
+    pendingQueueEdits.clear()
+  }
+  const abortOperations = (reason: Error): void => {
+    operation?.abort(reason)
+    rewindOperation?.abort(reason)
+  }
+  // An unmount must also cancel an in-flight slash command or rewind and release
+  // any pending queue recall immediately instead of waiting on slow attachment I/O.
+  const onCancelled = (): void => {
+    abortOperations(new Error('runner unloaded'))
+    settlePendingQueueEdits()
+  }
   cancelled.addEventListener('abort', onCancelled, { once: true })
   const offInterrupt = tui.onInterrupt(() => {
     if (controller.interruptVisible()) return
@@ -47,27 +65,54 @@ async function run(ctx: Context, tui: TuiService, cancelled: AbortSignal): Promi
       operation?.abort(new Error('Shell interrupted by user'))
       return
     }
-    operation?.abort(new Error('cancelled by user'))
+    abortOperations(new Error('cancelled by user'))
     controller.agent?.cancel({ kind: 'user' }, { keepInbox: true })
   })
   const offQueueEdit = tui.onQueueEdit(request => {
-    void controller.editLatestFollowup(request).then(submission => {
+    if (cancelled.aborted) {
+      tui.resolveQueueEdit(null, request)
+      return
+    }
+    const entry = { request, settled: false }
+    pendingQueueEdits.add(entry)
+    const linked = request === undefined
+      ? { signal: cancelled }
+      : { ...request, signal: AbortSignal.any([request.signal, cancelled]) }
+    void controller.editLatestFollowup(linked).then(submission => {
+      pendingQueueEdits.delete(entry)
+      if (entry.settled || cancelled.aborted) {
+        // Restore any input already withdrawn from the inbox so it is never lost
+        // after unmount already settled the pending recall on the TUI.
+        if (submission !== undefined) tui.restoreInput(submission, request?.sessionId)
+        if (!entry.settled) {
+          entry.settled = true
+          tui.resolveQueueEdit(null, request)
+        }
+        return
+      }
+      entry.settled = true
       tui.resolveQueueEdit(submission ?? null, request)
     }).catch((error: unknown) => {
-      tui.resolveQueueEdit(null, request)
-      if (!request?.signal.aborted) tui.notice(error instanceof Error ? error.message : String(error), { level: 'error' })
+      pendingQueueEdits.delete(entry)
+      if (!entry.settled) {
+        entry.settled = true
+        tui.resolveQueueEdit(null, request)
+      }
+      if (!cancelled.aborted && !request?.signal.aborted) {
+        tui.notice(error instanceof Error ? error.message : String(error), { level: 'error' })
+      }
     })
   })
   const offRewind = tui.onRewind(() => {
-    if (operation !== undefined || controller.agent?.status !== 'idle') return
+    if (operation !== undefined || rewindOperation !== undefined || controller.agent?.status !== 'idle') return
     const rewind = new AbortController()
-    operation = rewind
+    rewindOperation = rewind
     void controller.openSessionTree(rewind.signal).catch((error: unknown) => {
       if (!rewind.signal.aborted) {
         tui.notice(error instanceof Error ? error.message : String(error), { level: 'error' })
       }
     }).finally(() => {
-      if (operation === rewind) operation = undefined
+      if (rewindOperation === rewind) rewindOperation = undefined
     })
   })
   try {
@@ -168,11 +213,12 @@ async function run(ctx: Context, tui: TuiService, cancelled: AbortSignal): Promi
       }
     } else if (cancelled.aborted) {
       // An unmount cancel aborts the in-flight command instead of waiting.
-      operation?.abort(new Error('runner unloaded'))
+      abortOperations(new Error('runner unloaded'))
     }
   } finally {
     cancelled.removeEventListener('abort', onCancelled)
-    operation?.abort(new Error('runner disposed'))
+    abortOperations(new Error('runner disposed'))
+    settlePendingQueueEdits()
     offQueueEdit()
     offRewind()
     offInterrupt()

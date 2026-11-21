@@ -497,4 +497,86 @@ describe('readable process details', () => {
     expect(folded.transcript!.disclosures![0]!.group).toBeDefined()
     expect(folded.lines.map(stripAnsi).find(line => line.includes('Worked for'))).toMatch(/^  ▸ Worked/)
   })
+
+  it('clamps narrow short-session rows when topPad is positive', () => {
+    const frame = renderView(start(), { ...options, width: 4, height: 20 })
+    expect(frame.lines.every(line => visibleWidth(line) <= 4)).toBe(true)
+  })
+
+  it('keeps default truecolor cache separate from explicit ansi16, compactLinks, and turnDetailsKey', () => {
+    const state: TranscriptState = {
+      ...start(),
+      blocks: [{ kind: 'assistant', turn: 1, step: 1, reasoning: '', text: 'See [docs](https://example.com/documentation/very/long/path/with/many/segments)' }],
+    }
+    const truecolorFrame = renderView(state, { ...options, colors: true })
+    const ansi16Frame = renderView(state, { ...options, colors: true, colorDepth: 'ansi16' })
+    expect(truecolorFrame.lines.join('\n')).toContain('\x1b[38;2;')
+    expect(ansi16Frame.lines.join('\n')).not.toContain('\x1b[38;2;')
+
+    const fullLinks = renderView(state, { ...options, colors: true, compactLinks: false })
+    const compactLinks = renderView(state, { ...options, colors: true, compactLinks: true })
+    expect(stripAnsi(compactLinks.lines.join('\n'))).toContain('example.com/…')
+    expect(stripAnsi(fullLinks.lines.join('\n'))).not.toContain('example.com/…')
+
+    const aside: TranscriptState = { ...start(), blocks: [{ kind: 'aside', question: 'q', text: 'line1\nline2\nline3\nline4\nline5' }] }
+    const defaultKey = renderView(aside, { ...options, turnDetailsKey: 'Ctrl+O' })
+    const customKey = renderView(aside, { ...options, turnDetailsKey: 'Ctrl+B' })
+    expect(stripAnsi(defaultKey.lines.join('\n'))).toContain('Ctrl+O')
+    expect(stripAnsi(customKey.lines.join('\n'))).toContain('Ctrl+B')
+  })
+
+  it('renders transcripts exceeding V8 spread argument limits without stack overflow', () => {
+    const longText = Array.from({ length: 70_000 }, (_, i) => `row-${i}`).join('\n')
+    const state: TranscriptState = {
+      ...start(),
+      blocks: [{ kind: 'user', text: longText }],
+    }
+    const frame = renderView(state, { ...options, width: 40, height: 20 })
+    expect(frame.lines.length).toBeGreaterThan(70_000)
+  })
+
+  it('renders expanded failed diff tool cards with 140k-line hunks without stack overflow', () => {
+    const singleBig = 'line\n'.repeat(140_000)
+    const halfBig = 'line\n'.repeat(75_000)
+    const state: TranscriptState = {
+      ...start(),
+      blocks: [
+        {
+          kind: 'tool',
+          callId: 'd1',
+          name: 'edit',
+          status: 'error',
+          args: '{}',
+          output: 'patch failed',
+          presentation: {
+            call: {
+              card: 'diff',
+              title: 'Edit big.txt',
+              diffs: [{ path: 'big.txt', oldText: null, newText: singleBig }],
+            },
+          },
+        },
+        {
+          kind: 'tool',
+          callId: 'd2',
+          name: 'edit',
+          status: 'error',
+          args: '{}',
+          output: 'patch failed',
+          presentation: {
+            call: {
+              card: 'diff',
+              title: 'Edit two.txt',
+              diffs: [
+                { path: 'a.txt', oldText: null, newText: halfBig },
+                { path: 'b.txt', oldText: null, newText: halfBig },
+              ],
+            },
+          },
+        },
+      ],
+    }
+    const frame = renderView(state, { ...options, width: 60, height: 20, expandedTools: new Set(['d1', 'd2']) })
+    expect(frame.lines.length).toBeGreaterThan(290_000)
+  })
 })

@@ -71,13 +71,14 @@ export class TerminalSession {
 
   /** Write the one-time capability query and arm its deadline. */
   start(): void {
-    if (this.#querySent) return
+    if (this.#disposed || this.#querySent) return
     this.#querySent = true
     this.#host.write(CAPABILITY_QUERY)
     this.#probeTimer = setTimeout(() => {
       this.#probeTimer = undefined
-      this.#settle()
+      if (!this.#disposed) this.#settle()
     }, this.#probeTimeoutMs)
+    this.#probeTimer.unref?.()
   }
 
   setMode(name: string, mode: TerminalMode, on: boolean): void {
@@ -95,6 +96,7 @@ export class TerminalSession {
    * treating them as input.
    */
   handle(event: KeyEvent): boolean {
+    if (this.#disposed) return false
     if (event.type === 'color-reply') {
       this.#colors = mergeColorReply(this.#colors, event.reply)
       this.#colorsDirty()
@@ -111,6 +113,7 @@ export class TerminalSession {
           this.#schemeTimer = undefined
           if (!this.#disposed) this.#host.write(COLOR_QUERY)
         }, SCHEME_REQUERY_MS)
+        this.#schemeTimer.unref?.()
       }
       return true
     }
@@ -169,10 +172,11 @@ export class TerminalSession {
 
   /** Mark accumulated colors dirty; changes notify only after settlement. */
   #colorsDirty(): void {
-    if (!this.#settled || this.#colorTimer !== undefined) return
+    if (this.#disposed || !this.#settled || this.#colorTimer !== undefined) return
     this.#colorTimer = setTimeout(() => {
       this.#colorTimer = undefined
       if (!this.#disposed) this.#host.colorsChanged()
     }, COLORS_CHANGED_MS)
+    this.#colorTimer.unref?.()
   }
 }

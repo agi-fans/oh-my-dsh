@@ -183,7 +183,6 @@
     "@deepseek-ai/dsh-terminal-bash": "0.2.2-rc.5",
     "@deepseek-ai/dsh-time-context": "0.2.2-rc.5",
     "@deepseek-ai/dsh-timeout": "0.2.2-rc.5",
-    "@deepseek-ai/dsh-tmux-context": "0.2.2-rc.5",
     "@deepseek-ai/dsh-token-meter": "0.2.2-rc.5",
     "@deepseek-ai/dsh-tool-agent-team": "0.2.2-rc.5",
     "@deepseek-ai/dsh-tool-ask-user": "0.2.2-rc.5",

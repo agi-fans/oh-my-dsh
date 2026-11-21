@@ -134,7 +134,9 @@ function argumentRows(record: TrajectoryRecord, theme: Theme, width: number): st
   for (const [key, value] of Object.entries(args)) {
     if (rows.length > 0) rows.push('')
     rows.push(theme.fg('dim', key))
-    rows.push(...codeRows(typeof value === 'string' ? value : json(value), typeof value === 'string' ? undefined : 'json', theme, width))
+    for (const line of codeRows(typeof value === 'string' ? value : json(value), typeof value === 'string' ? undefined : 'json', theme, width)) {
+      rows.push(line)
+    }
   }
   return rows.length === 0 ? [theme.fg('dim', 'No arguments.')] : rows
 }
@@ -1406,10 +1408,13 @@ function summaryFields(record: TrajectoryRecord): DetailField[] {
 function assistantWriting(record: TrajectoryRecord, theme: Theme, width: number): string[] {
   const out: string[] = []
   if (record.thinking !== '') {
-    out.push(theme.fg('dim', 'Thinking'), ...renderMarkdown(record.thinking, theme, width, { color: 'thinkingText', italic: true }))
+    out.push(theme.fg('dim', 'Thinking'))
+    for (const line of renderMarkdown(record.thinking, theme, width, { color: 'thinkingText', italic: true })) out.push(line)
     if (record.result !== '') out.push('', theme.fg('dim', 'Answer'))
   }
-  if (record.result !== '') out.push(...renderMarkdown(record.result, theme, width))
+  if (record.result !== '') {
+    for (const line of renderMarkdown(record.result, theme, width)) out.push(line)
+  }
   return out
 }
 

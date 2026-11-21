@@ -845,6 +845,9 @@ export function detectColorDepth(env: NodeJS.ProcessEnv = process.env): ColorDep
 /** Terminal 2.15, macOS 26 Tahoe, is the first Apple Terminal with real 24-bit color. */
 const FIRST_TRUECOLOR_APPLE_TERMINAL_BUILD = 464
 
+const THEME_CACHE_MAX = 16
+const themeCache = new Map<string, Theme>()
+
 /**
  * Build a theme.
  * @param colors - emit SGR when true.
@@ -861,6 +864,13 @@ export function createTheme(
   compactLinks = false,
 ): Theme {
   const resolvedDepth: ColorDepth = depth === true ? 'truecolor' : depth === false ? 'ansi16' : depth
+  const key = [name, colors ? 1 : 0, resolvedDepth, terminalColorsKey(terminal), language, compactLinks && colors ? 1 : 0].join('|')
+  const cached = themeCache.get(key)
+  if (cached !== undefined) {
+    themeCache.delete(key)
+    themeCache.set(key, cached)
+    return cached
+  }
   const tc = colors && resolvedDepth === 'truecolor'
   const palette = name === 'system' ? systemPalette(terminal) : PALETTES[name]
   const ansi = ANSI16[name]
@@ -878,9 +888,16 @@ export function createTheme(
     const index = nearestPaletteIndex({ r, g, b }, reported)
     return index === undefined ? undefined : ansiIndexSgr(index, asBackground)
   }
+  const fgAnsiCache = new Map<ThemeColor, string>()
+  const bgAnsiCache = new Map<ThemeColor, string>()
   const getFgAnsi = (color: ThemeColor): string => {
     if (!colors) return ''
-    return quantized(palette[color], false) ?? swatchCode(palette[color], resolvedDepth, ansi[color], 38)
+    let sgr = fgAnsiCache.get(color)
+    if (sgr === undefined) {
+      sgr = quantized(palette[color], false) ?? swatchCode(palette[color], resolvedDepth, ansi[color], 38)
+      fgAnsiCache.set(color, sgr)
+    }
+    return sgr
   }
   const rawBgAnsi = (color: ThemeColor): string => {
     if (!colors) return ''
@@ -908,11 +925,18 @@ export function createTheme(
    * of pretending to have a second one, which keeps consecutive calls readable.
    */
   const altBg = colors && !tc && fillsFor('toolSuccessBg') === fillsFor('toolAltBg') ? BG_RESET : undefined
-  const getBgAnsi = (color: ThemeColor): string =>
-    color === 'toolAltBg' && altBg !== undefined ? altBg : fillsFor(color)
+  const getBgAnsi = (color: ThemeColor): string => {
+    if (!colors) return ''
+    let sgr = bgAnsiCache.get(color)
+    if (sgr === undefined) {
+      sgr = color === 'toolAltBg' && altBg !== undefined ? altBg : fillsFor(color)
+      bgAnsiCache.set(color, sgr)
+    }
+    return sgr
+  }
   const paint = (open: string, text: string, close: string): string =>
     colors && open !== '' ? open + text + close : text
-  return {
+  const theme: Theme = {
     language,
     text: (source, values) => uiText(language, source, values),
     name,
@@ -920,7 +944,7 @@ export function createTheme(
     compactLinks: colors && compactLinks,
     trueColor: tc,
     depth: resolvedDepth,
-    key: [name, colors ? 1 : 0, resolvedDepth, terminalColorsKey(terminal), language, compactLinks && colors ? 1 : 0].join('|'),
+    key,
     getFgAnsi,
     getBgAnsi,
     fg: (color, text) => paint(getFgAnsi(color), text, FG_RESET),
@@ -932,6 +956,11 @@ export function createTheme(
     dim: (text) => paint(getFgAnsi('dim'), text, FG_RESET),
     inverse: (text) => (colors ? `\x1b[7m${text}${INVERSE_RESET}` : text),
   }
+  while (themeCache.size >= THEME_CACHE_MAX) {
+    themeCache.delete(themeCache.keys().next().value!)
+  }
+  themeCache.set(key, theme)
+  return theme
 }
 
 /** DeepSeek mark adapted from the official SVG for a 20×6 terminal cell. */

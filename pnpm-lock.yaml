@@ -350,9 +350,6 @@ importers:
       '@deepseek-ai/dsh-timeout':
         specifier: 0.2.2-rc.5
         version: 0.2.2-rc.5(@deepseek-ai/cordis@4.1.0)
-      '@deepseek-ai/dsh-tmux-context':
-        specifier: 0.2.2-rc.5
-        version: 0.2.2-rc.5(023e0836140d1f813a399b0d2fab6202)
       '@deepseek-ai/dsh-token-meter':
         specifier: 0.2.2-rc.5
         version: 0.2.2-rc.5(93e9b8ee911c4b03c2a77037d579dcec)
@@ -573,9 +570,6 @@ importers:
       '@deepseek-ai/dsh-deepseek-account':
         specifier: 0.2.2-rc.5
         version: 0.2.2-rc.5(@deepseek-ai/cordis@4.1.0)(@deepseek-ai/dsh-agent@0.2.2-rc.5(0ed64d44925d0c713f38f0da8dc986ac))(@deepseek-ai/dsh-authorization@0.2.2-rc.5(@deepseek-ai/cordis@4.1.0)(@deepseek-ai/dsh-credentials@0.2.2-rc.5(@deepseek-ai/cordis@4.1.0))(@deepseek-ai/dsh-llm@0.2.2-rc.5(@deepseek-ai/cordis@4.1.0)(@deepseek-ai/dsh-error@0.2.2-rc.5(@deepseek-ai/cordis@4.1.0))))(@deepseek-ai/dsh-brand@0.2.2-rc.5(@deepseek-ai/cordis@4.1.0))(@deepseek-ai/dsh-credentials@0.2.2-rc.5(@deepseek-ai/cordis@4.1.0))(@deepseek-ai/dsh-host-webserver@0.2.2-rc.5(@deepseek-ai/cordis@4.1.0)(supports-color@9.4.0))(@deepseek-ai/dsh-llm@0.2.2-rc.5(@deepseek-ai/cordis@4.1.0)(@deepseek-ai/dsh-error@0.2.2-rc.5(@deepseek-ai/cordis@4.1.0)))(@deepseek-ai/dsh-typert-protocol@0.2.2-rc.5(@deepseek-ai/cordis@4.1.0))(@deepseek-ai/dsh-util-values@0.2.2-rc.5(@deepseek-ai/cordis@4.1.0))
-      '@deepseek-ai/dsh-experimental-worktree':
-        specifier: 0.2.2-rc.5
-        version: 0.2.2-rc.5(6a74ca052e145576186d788434d7ed8c)
       '@deepseek-ai/dsh-file-reference':
         specifier: 0.2.2-rc.5
         version: 0.2.2-rc.5(@deepseek-ai/cordis@4.1.0)(@deepseek-ai/dsh-agent@0.2.2-rc.5(0ed64d44925d0c713f38f0da8dc986ac))

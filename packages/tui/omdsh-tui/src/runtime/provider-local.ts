@@ -561,7 +561,6 @@ export class LocalTui implements TuiService {
   #tick: ReturnType<typeof setInterval> | null = null
   #revealTick: ReturnType<typeof setInterval> | null = null
   #reveal: { key: string; revealed: number } | undefined
-  #loopTick: ReturnType<typeof setInterval> | null = null
   #scrollStart = 0
   #maxStart = 0
   #scrollBudget = 0
@@ -701,7 +700,6 @@ export class LocalTui implements TuiService {
   #writtenWindowTitle: string | undefined
   #sessionStats: TuiSessionStats | undefined
   #sessionControls: TuiSessionControls | undefined
-  #loopStatus: TuiLoopStatus | undefined
   #subagents: TuiSubagentRoster | undefined
   /**
    * The roster row the reader is pointing at, or `undefined` when the composer
@@ -753,6 +751,7 @@ export class LocalTui implements TuiService {
   #updateAgentBehavior: ((next: TuiAgentBehaviorSettings) => Promise<void>) | undefined
   #offAgentBehaviorWatch: (() => void) | undefined
   #agentBehaviorPending = false
+  #agentBehaviorEpoch = 0
 
   /**
    * @param term - terminal surface (injectable for tests).
@@ -888,6 +887,7 @@ export class LocalTui implements TuiService {
         this.#disclosurePress = undefined
         const repaint = (): void => {
           this.#resizeTimer = null
+          if (this.#disposed) return
           this.#renderer.resize(this.#term.width(), this.#term.height())
           this.#render()
         }
@@ -924,6 +924,7 @@ export class LocalTui implements TuiService {
 
   /** Follow the viewed Session without replacing its transcript or native history. */
   setWorkingDirectory(cwd: string, options: { root?: boolean } = {}): void {
+    if (this.#disposed) return
     const root = options.root ?? this.#inspected === undefined
     const project = resolveProjectContext(cwd)
     if (root) {
@@ -959,6 +960,7 @@ export class LocalTui implements TuiService {
   }
 
   event(event: SessionEvent, presentation?: TuiToolPresentation, workspace?: WorkspaceChangesSummary): void {
+    if (this.#disposed) return
     // Paint any coalesced results and remaining streamed text before the turn's
     // end changes the live work into its folded summary.
     if (event.type === 'turn/end' && this.#tty && this.#state.status !== 'idle'
@@ -1018,6 +1020,7 @@ export class LocalTui implements TuiService {
   }
 
   setWorkspaceSummary(turn: number, summary: WorkspaceChangesSummary): void {
+    if (this.#disposed) return
     const next = withWorkspaceSummary(this.#state, turn, summary)
     if (next === this.#state) return
     this.#state = next
@@ -1031,6 +1034,7 @@ export class LocalTui implements TuiService {
    * log as `assistant/message` or `assistant/attempt`.
    */
   streamDelta(delta: StreamDelta): void {
+    if (this.#disposed) return
     this.#state = applyStreamChunk(this.#state, delta)
     const smoothStream = this.#syncStreamingReveal(delta)
     this.#syncTick()
@@ -1053,6 +1057,7 @@ export class LocalTui implements TuiService {
       compaction?: { phase: 'start' | 'end'; id?: string; error?: string }
     } = {},
   ): void {
+    if (this.#disposed) return
     // Parent lifecycle remains authoritative while the child owns the visible view.
     if (options.root === true || this.#inspected === undefined) {
       this.#herdr.setRunning(status === 'running')
@@ -1073,12 +1078,13 @@ export class LocalTui implements TuiService {
 
   /** Update first-run model readiness without touching the model label. */
   setModelReady(ready: boolean): void {
-    if (this.#modelReady === ready) return
+    if (this.#disposed || this.#modelReady === ready) return
     this.#modelReady = ready
     if (this.#tty) this.#render()
   }
 
   setModel(model: string, reasoningEffort?: string): void {
+    if (this.#disposed) return
     this.#model = model
     this.#reasoningEffort = reasoningEffort
     this.#syncSettingsActions()
@@ -1086,13 +1092,11 @@ export class LocalTui implements TuiService {
     if (this.#tty) this.#render()
   }
 
-  setLoopStatus(status: TuiLoopStatus | undefined): void {
-    this.#loopStatus = status === undefined ? undefined : { ...status }
-    this.#syncLoopTick()
-    if (this.#tty) this.#render()
-  }
+  /** @deprecated No-op retained for public TuiService compatibility after `/loop` removal. */
+  setLoopStatus(_status: TuiLoopStatus | undefined): void {}
 
   setSubagents(roster: TuiSubagentRoster | undefined): void {
+    if (this.#disposed) return
     const previous = this.#subagents?.agents ?? []
     const incoming = roster?.agents ?? []
     const statusChanged = previous.length !== incoming.length || incoming.some((agent, index) => {
@@ -1137,6 +1141,7 @@ export class LocalTui implements TuiService {
   }
 
   setInspectedSubagent(inspected: TuiInspectedSubagent | undefined): void {
+    if (this.#disposed) return
     if (this.#inspected?.id === inspected?.id && this.#inspected?.label === inspected?.label
       && this.#inspected?.phase === inspected?.phase && this.#inspected?.needsApproval === inspected?.needsApproval && this.#inspected?.mode === inspected?.mode
       && this.#inspected?.writable === inspected?.writable && this.#inspected?.model === inspected?.model
@@ -1168,6 +1173,7 @@ export class LocalTui implements TuiService {
   }
 
   setCommands(commands: readonly TuiCommand[]): void {
+    if (this.#disposed) return
     this.#runtimeCommands = commands.map(command => ({ ...command }))
     this.#syncSettingsActions()
     this.#refreshAutocomplete()
@@ -1264,6 +1270,7 @@ export class LocalTui implements TuiService {
   }
 
   notice(text: string, options: TuiNoticeOptions = {}): void {
+    if (this.#disposed) return
     if (options.transient) {
       if (this.#tty && !this.#disposed) this.#showTransientStatus(text)
       return
@@ -1297,6 +1304,7 @@ export class LocalTui implements TuiService {
   }
 
   commandOutput(command: string, text: string, options: TuiOutputOptions = {}): void {
+    if (this.#disposed) return
     this.#state = { ...this.#state, blocks: [...this.#state.blocks, { kind: 'commandOutput', command, text }] }
     if (options.focus === true) this.#followTail()
     if (this.#tty) this.#render()
@@ -1312,6 +1320,7 @@ export class LocalTui implements TuiService {
    * command finishes the card is finished too, exactly like a tool call.
    */
   async shellCommand(request: TuiShellRequest): Promise<TuiShellResult> {
+    if (this.#disposed) return { output: '', interrupted: true }
     const block = { kind: 'shell' as const, command: request.command, output: '', status: 'running' as const }
     this.#insertShellBlock(block)
     // Ctrl+C belongs to the running command while its card is alive, the same
@@ -1323,25 +1332,31 @@ export class LocalTui implements TuiService {
     let pendingPaint: ReturnType<typeof setTimeout> | undefined
     const cancelPending = (): void => { if (pendingPaint !== undefined) { clearTimeout(pendingPaint); pendingPaint = undefined } }
     const paint = (): void => { if (this.#tty && !this.#disposed) this.#render() }
+    const flush = (): void => {
+      cancelPending()
+      lastPaint = Date.now()
+      this.#updateShellBlock(request.command, current => ({ ...current, output: pending }))
+      paint()
+    }
     // Output can arrive faster than a frame is worth; coalescing keeps a chatty
     // command from spending the whole turn in the renderer.
     const append = (output: string): void => {
       pending = output
-      const now = Date.now()
-      if (now - lastPaint < SHELL_PAINT_INTERVAL_MS) {
-        cancelPending()
-        pendingPaint = setTimeout(paint, SHELL_PAINT_INTERVAL_MS - (now - lastPaint))
-        return
-      }
-      lastPaint = now
-      this.#updateShellBlock(request.command, current => ({ ...current, output: pending }))
-      paint()
+      const wait = SHELL_PAINT_INTERVAL_MS - (Date.now() - lastPaint)
+      if (wait <= 0) { flush(); return }
+      cancelPending()
+      pendingPaint = setTimeout(flush, wait)
     }
     let result: TuiShellResult
     try {
       result = await request.run(append, request.signal)
     } catch (error: unknown) {
-      this.#updateShellBlock(request.command, current => ({ ...current, status: 'error' }))
+      cancelPending()
+      this.#updateShellBlock(request.command, current => ({
+        ...current,
+        output: pending === '' ? current.output : pending,
+        status: 'error',
+      }))
       paint()
       throw error
     } finally {
@@ -1349,9 +1364,10 @@ export class LocalTui implements TuiService {
       if (this.#shellAbort === request.abort) this.#shellAbort = undefined
     }
     const failed = result.interrupted === true || (result.code !== undefined && result.code !== 0)
+    const finalOutput = result.output === '' ? (pending === '' ? undefined : pending) : result.output
     this.#updateShellBlock(request.command, current => ({
       ...current,
-      output: result.output === '' ? current.output : result.output,
+      output: finalOutput ?? current.output,
       status: failed ? 'error' : 'ok',
       ...(result.code === undefined ? {} : { code: result.code }),
     }))
@@ -1412,20 +1428,22 @@ export class LocalTui implements TuiService {
     run: (onUpdate: (text: string) => void, signal: AbortSignal) => Promise<{ text: string; detail?: string; failed?: boolean }>
     signal: AbortSignal
   }): Promise<void> {
+    if (this.#disposed || request.signal.aborted) return
     this.#asideAbort?.abort()
     const abort = new AbortController()
     this.#asideAbort = abort
+    const onAbort = (): void => { abort.abort() }
     // Leaving the pane and losing the session both stop the consultation.
-    if (request.signal.aborted) abort.abort()
-    else request.signal.addEventListener('abort', () => abort.abort(), { once: true })
+    request.signal.addEventListener('abort', onAbort, { once: true })
     this.#aside = { question: request.question, text: '', status: 'running', scroll: 0 }
     this.#render()
     let lastPaint = 0
     let pending = ''
     let pendingPaint: ReturnType<typeof setTimeout> | undefined
-    const paint = (): void => { if (this.#tty && !this.#disposed) this.#render() }
+    const current = (): boolean => !this.#disposed && !abort.signal.aborted && this.#asideAbort === abort
+    const paint = (): void => { if (this.#tty && current()) this.#render() }
     const show = (change: Partial<AsidePanel>): void => {
-      if (this.#aside !== undefined) this.#aside = { ...this.#aside, ...change }
+      if (current() && this.#aside !== undefined) this.#aside = { ...this.#aside, ...change }
     }
     /**
      * The pending text is applied by the paint, not merely followed by one: a
@@ -1434,11 +1452,13 @@ export class LocalTui implements TuiService {
      */
     const flush = (): void => {
       if (pendingPaint !== undefined) { clearTimeout(pendingPaint); pendingPaint = undefined }
+      if (!current()) return
       lastPaint = Date.now()
       show({ text: pending })
       paint()
     }
     const stream = (text: string): void => {
+      if (!current()) return
       pending = text
       const wait = SHELL_PAINT_INTERVAL_MS - (Date.now() - lastPaint)
       if (wait <= 0) { flush(); return }
@@ -1453,11 +1473,20 @@ export class LocalTui implements TuiService {
         ...(result.detail === undefined ? {} : { detail: result.detail }),
       })
     } catch (error) {
-      if (!abort.signal.aborted) show({ status: 'error', detail: error instanceof Error ? error.message : String(error) })
+      if (current()) show({ status: 'error', detail: error instanceof Error ? error.message : String(error) })
     } finally {
+      request.signal.removeEventListener('abort', onAbort)
       if (pendingPaint !== undefined) clearTimeout(pendingPaint)
-      if (this.#asideAbort === abort) this.#asideAbort = undefined
-      paint()
+      const owned = this.#asideAbort === abort
+      if (owned) {
+        this.#asideAbort = undefined
+        // An external signal abort stops the consultation without user Esc; close
+        // a still-running pane rather than leaving it spinning indefinitely.
+        if (abort.signal.aborted && this.#aside?.status === 'running') {
+          this.#aside = undefined
+        }
+        if (this.#tty && !this.#disposed) this.#render()
+      }
     }
   }
 
@@ -1612,6 +1641,7 @@ export class LocalTui implements TuiService {
     status: TuiStatus = 'idle',
     reason: TuiTranscriptReplacement = 'open',
   ): void {
+    if (this.#disposed) return
     this.#workspacePress = undefined
     if (reason !== 'refresh') {
       this.#fileReviewAbort?.abort()
@@ -1656,6 +1686,7 @@ export class LocalTui implements TuiService {
     stats?: TuiSessionStats
     controls?: TuiSessionControls
   }): void {
+    if (this.#disposed) return
     if (info.id !== this.#sessionId) {
       this.#transcriptScopeChanged = true
       this.#workspacePress = undefined
@@ -1806,8 +1837,8 @@ export class LocalTui implements TuiService {
   }
 
   /** Called after a live `/settings` change. */
-  setPrefsPersist(persist: (prefs: TuiPrefs, changes?: readonly SettingsPathOp[]) => void): void {
-    this.#persistPrefs = persist
+  setPrefsPersist(persist: ((prefs: TuiPrefs, changes?: readonly SettingsPathOp[]) => void | Promise<void>) | null | undefined): void {
+    this.#persistPrefs = persist ?? null
   }
 
   /** Bind product configuration and Advanced forms; unbinding cancels and drains its active form. */
@@ -1835,6 +1866,7 @@ export class LocalTui implements TuiService {
     return () => {
       if (!active) return
       active = false
+      this.#agentBehaviorEpoch += 1
       this.#offAgentBehaviorWatch?.()
       this.#offAgentBehaviorWatch = undefined
       this.#updateAgentBehavior = undefined
@@ -2173,10 +2205,6 @@ export class LocalTui implements TuiService {
       this.#tick = null
     }
     this.#stopRevealTick()
-    if (this.#loopTick !== null) {
-      clearInterval(this.#loopTick)
-      this.#loopTick = null
-    }
     if (this.#tty) {
       this.#offData?.()
       this.#offResize?.()
@@ -2270,14 +2298,19 @@ export class LocalTui implements TuiService {
   }
 
   #syncTick(): void {
-    if (!this.#tty) return
+    if (!this.#tty || this.#disposed) return
     const busy = this.#busy()
     if (busy && this.#motion !== 'off') {
       if (this.#tick === null) {
         this.#tick = setInterval(() => {
+          if (this.#disposed) {
+            if (this.#tick !== null) { clearInterval(this.#tick); this.#tick = null }
+            return
+          }
           this.#spinner += 1
           this.#render()
         }, 80)
+        this.#tick.unref?.()
       }
     } else if (this.#tick !== null) {
       clearInterval(this.#tick)
@@ -2300,8 +2333,12 @@ export class LocalTui implements TuiService {
   }
 
   #startRevealTick(): void {
-    if (!this.#tty || this.#revealTick !== null) return
+    if (!this.#tty || this.#disposed || this.#revealTick !== null) return
     this.#revealTick = setInterval(() => {
+      if (this.#disposed) {
+        this.#stopRevealTick()
+        return
+      }
       const reveal = this.#reveal
       if (reveal === undefined || streamingAssistantKey(this.#state) !== reveal.key) {
         this.#stopRevealTick()
@@ -2325,18 +2362,6 @@ export class LocalTui implements TuiService {
     if (this.#revealTick === null) return
     clearInterval(this.#revealTick)
     this.#revealTick = null
-  }
-
-  #syncLoopTick(): void {
-    if (!this.#tty) return
-    const countdown = this.#loopStatus?.phase === 'running' && this.#loopStatus.deadline !== undefined
-    if (countdown && this.#loopTick === null) {
-      this.#loopTick = setInterval(() => { this.#render() }, 1_000)
-      this.#loopTick.unref?.()
-    } else if (!countdown && this.#loopTick !== null) {
-      clearInterval(this.#loopTick)
-      this.#loopTick = null
-    }
   }
 
   #captureDraft(): ComposerDraft {
@@ -2439,6 +2464,7 @@ export class LocalTui implements TuiService {
   }
 
   #render(): void {
+    if (this.#disposed) return
     this.#pendingInputs.flush(this.#pendingScope())
     this.#watchDraft()
     if (this.#streamRenderTimer !== null) {
@@ -2524,7 +2550,6 @@ export class LocalTui implements TuiService {
         modelReady: this.#modelReady,
         ...(this.#sessionStats === undefined ? {} : { sessionStats: this.#sessionStats }),
         ...(this.#sessionControls === undefined ? {} : { sessionControls: this.#sessionControls }),
-        ...(this.#loopStatus === undefined ? {} : { loopStatus: this.#loopStatus }),
         ...(this.#subagents === undefined ? {} : { subagents: this.#subagents }),
         ...(this.#subagentSelection === undefined ? {} : { subagentSelection: this.#subagentSelection }),
         ...(this.#inspected === undefined ? {} : { inspected: this.#inspected }),
@@ -2570,7 +2595,7 @@ export class LocalTui implements TuiService {
   }
 
   #scheduleStreamRender(): void {
-    if (this.#streamRenderTimer !== null) return
+    if (this.#disposed || this.#streamRenderTimer !== null) return
     this.#streamRenderTimer = setTimeout(() => {
       this.#streamRenderTimer = null
       if (!this.#disposed) this.#render()
@@ -2744,6 +2769,7 @@ export class LocalTui implements TuiService {
       this.#escapeTimer = setTimeout(() => {
         this.#pendingKeys = ''
         this.#escapeTimer = null
+        if (this.#disposed) return
         for (const event of flushPending(rest)) this.#routeInput(event)
       }, 80)
     } else if (rest.length > 32 && !rest.startsWith('\x1b]')) {
@@ -2765,7 +2791,11 @@ export class LocalTui implements TuiService {
   #armPasteBurst(): void {
     this.#pasteBurstTimer = undefined
     if (this.#pasteBurst.pending) {
-      this.#pasteBurstTimer = setTimeout(() => { this.#pasteBurstTimer = undefined; this.#flushPasteBurst(true) }, this.#pasteBurst.delay)
+      this.#pasteBurstTimer = setTimeout(() => {
+        this.#pasteBurstTimer = undefined
+        if (this.#disposed) return
+        this.#flushPasteBurst(true)
+      }, this.#pasteBurst.delay)
     }
   }
 
@@ -4175,7 +4205,7 @@ export class LocalTui implements TuiService {
 
   #applyPrefs(prefs: TuiPrefs, options: { persist: boolean; forceToolsSync: boolean }): void {
     const previous = options.persist ? this.prefs() : undefined
-    const version = this.#prefsVersion
+    const version = options.persist ? ++this.#prefsVersion : this.#prefsVersion
     const previousMotion = this.#motion
     this.#workspacePress = undefined
     this.#uiLanguage = prefs.uiLanguage ?? 'auto'
@@ -4215,14 +4245,22 @@ export class LocalTui implements TuiService {
         if (this.#prefsVersion === version && previous !== undefined) this.applyStoredPrefs(previous)
         await this.#settingsError(`Settings were not saved: ${error instanceof Error ? error.message : String(error)}`)
       }
+      const trackSave = (pending: Promise<void>): void => {
+        const prev = this.#prefsSaveTask
+        let task!: Promise<void>
+        task = Promise.allSettled([prev, pending]).then(() => {}).finally(() => {
+          if (this.#prefsSaveTask === task) this.#prefsSaveTask = undefined
+        })
+        this.#prefsSaveTask = task
+      }
       try {
         const changes = previous === undefined ? [] : preferenceChanges(previous, prefs)
         const result = changes.length === 0 ? undefined : this.#persistPrefs(prefs, changes)
         if (result !== undefined && result !== null && typeof result === 'object' && typeof result.then === 'function') {
-          this.#prefsSaveTask = Promise.resolve(result).catch(failed).finally(() => { this.#prefsSaveTask = undefined })
+          trackSave(Promise.resolve(result).catch(failed))
         }
       } catch (error) {
-        this.#prefsSaveTask = failed(error).finally(() => { this.#prefsSaveTask = undefined })
+        trackSave(failed(error))
       }
     }
   }
@@ -4234,6 +4272,7 @@ export class LocalTui implements TuiService {
   }
 
   #applyStoredAgentBehavior(next: TuiAgentBehaviorSettings): void {
+    this.#agentBehaviorEpoch += 1
     this.#agentBehavior = { language: next.language }
     if (this.#settings !== null) {
       this.#settings = { ...this.#settings, agent: { ...this.#agentBehavior } }
@@ -4244,16 +4283,19 @@ export class LocalTui implements TuiService {
   async #commitAgentBehavior(next: TuiAgentBehaviorSettings): Promise<void> {
     const update = this.#updateAgentBehavior
     if (update === undefined) return
+    const epoch = ++this.#agentBehaviorEpoch
     try {
       await update(next)
+      if (this.#disposed || this.#updateAgentBehavior !== update || this.#agentBehaviorEpoch !== epoch) return
       this.#applyStoredAgentBehavior(next)
     } catch (error: unknown) {
+      if (this.#disposed || this.#updateAgentBehavior !== update || this.#agentBehaviorEpoch !== epoch) return
       if (this.#settings !== null && this.#agentBehavior !== undefined) {
         this.#settings = { ...this.#settings, agent: { ...this.#agentBehavior } }
       }
       await this.#settingsError(`Could not save Agent language: ${error instanceof Error ? error.message : String(error)}`)
     } finally {
-      this.#agentBehaviorPending = false
+      if (this.#updateAgentBehavior === update) this.#agentBehaviorPending = false
       if (this.#tty && !this.#disposed) this.#render()
     }
   }
@@ -4657,11 +4699,9 @@ export class LocalTui implements TuiService {
    */
   #toggleThinking(): void {
     const next = !this.#hideThinking
-    this.#hideThinking = next
     this.#expandedReasoning.clear()
     this.#closedReasoning.clear()
-    const persist = this.#persistPrefs
-    if (persist !== null) void persist(this.prefs(), [{ op: 'set', path: ['hideThinking'], value: next }])
+    this.#applyPrefs({ ...this.prefs(), hideThinking: next }, { persist: true, forceToolsSync: false })
     this.#showTransientStatus(uiText(resolveUiLanguage(this.#uiLanguage), next ? 'Thinking: hidden' : 'Thinking: shown'))
   }
 
@@ -6164,11 +6204,16 @@ export function apply(ctx: Context, config: Config): void {
   // A missing route must be visible without turning the startup header into a
   // credential check: the seams answer optimistically when they cannot tell.
   ctx.inject(['settings', 'credentials'], readyCtx => {
-    const refreshModelReady = (): void => {
-      void modelRouteReady(readyCtx).then(ready => tui.setModelReady(ready)).catch(() => {})
-    }
-    refreshModelReady()
     readyCtx.effect(() => {
+      let active = true
+      let epoch = 0
+      const refreshModelReady = (): void => {
+        const request = ++epoch
+        void modelRouteReady(readyCtx).then(ready => {
+          if (active && request === epoch) tui.setModelReady(ready)
+        }).catch(() => {})
+      }
+      refreshModelReady()
       const disposers = [
         readyCtx.on('credentials/reference-updated', refreshModelReady),
         readyCtx.on('credentials/record-updated', refreshModelReady),
@@ -6178,7 +6223,10 @@ export function apply(ctx: Context, config: Config): void {
       // this injection; re-read once the composition has settled so an existing
       // grant is reflected in the live placeholder without a credential event.
       const timers = [setTimeout(refreshModelReady, 250), setTimeout(refreshModelReady, 1_500)]
+      for (const timer of timers) timer.unref?.()
       return () => {
+        active = false
+        epoch += 1
         for (const dispose of disposers) dispose()
         for (const timer of timers) clearTimeout(timer)
       }
@@ -6222,10 +6270,14 @@ export function apply(ctx: Context, config: Config): void {
   // Persistence needs the settings service; without one the provider still runs
   // and an in-app change stays session-local, as it did before.
   ctx.inject(['settings'], (settingsCtx) => {
-    tui.setPrefsPersist((_prefs, changes) => {
-      return settingsCtx.settings.mutate(TUI_SETTINGS_ENTRY, [...changes ?? []])
-        .catch((error: unknown) => { tui.applyStoredPrefs(storedPrefs()); throw error })
-    })
+    settingsCtx.effect(() => {
+      const persist = (_prefs: TuiPrefs, changes?: readonly SettingsPathOp[]) => {
+        return settingsCtx.settings.mutate(TUI_SETTINGS_ENTRY, [...changes ?? []])
+          .catch((error: unknown) => { tui.applyStoredPrefs(storedPrefs()); throw error })
+      }
+      tui.setPrefsPersist(persist)
+      return () => { tui.setPrefsPersist(null) }
+    }, 'omdsh TUI prefs persistence')
   })
   ctx.inject(['settings', 'credentials'], (settingsCtx) => {
     settingsCtx.effect(() => {

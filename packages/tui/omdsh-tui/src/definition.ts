@@ -307,16 +307,12 @@ export interface TuiGoalStatus {
   maxGoalRounds: number
 }
 
-/** Process-local repeated-prompt state contributed by the Loop plugin. */
+/** @deprecated Retained for compatibility after `/loop` removal; no longer rendered in the footer. */
 export interface TuiLoopStatus {
   phase: 'waiting' | 'running' | 'paused' | 'completed'
-  /** Automatic submissions already dispatched by this Loop. */
   repeats?: number
-  /** Configured automatic submissions for a count-limited Loop. */
   total?: number
-  /** Absolute deadline while a duration-limited Loop is running. */
   deadline?: number
-  /** Original duration expression for a time-limited loop. */
   limit?: string
 }
 
@@ -577,7 +573,7 @@ export interface TuiService {
   ): void
   /** Update the model and effective reasoning effort shown in the composer. */
   setModel(model: string, reasoningEffort?: string): void
-  /** Update the optional process-local Loop indicator in the fixed footer. */
+  /** @deprecated No-op retained for compatibility after `/loop` removal. */
   setLoopStatus(status: TuiLoopStatus | undefined): void
   /** Replace the live descendant-subagent roster above the composer. */
   setSubagents(roster: TuiSubagentRoster | undefined): void

@@ -67,6 +67,19 @@ export class LiveAttemptTracker {
     this.#attempts.delete(key)
   }
 
+  /** Clear every tracked attempt belonging to one disposed session. */
+  clearSession(sessionId: string): void {
+    const prefix = `${sessionId}:`
+    for (const key of this.#attempts.keys()) {
+      if (key.startsWith(prefix)) this.#attempts.delete(key)
+    }
+  }
+
+  /** Drop all tracked attempts on runtime disposal. */
+  clear(): void {
+    this.#attempts.clear()
+  }
+
   /** Buffered deltas for one attempt, for replaying a rebuilt transcript. */
   deltas(key: string): readonly StreamDelta[] {
     return this.#attempts.get(key)?.deltas ?? []

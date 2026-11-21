@@ -6079,3 +6079,93 @@ describe('deferUntilMainScreen', () => {
     expect(captured).toContain('\x1b[?1049l\x1b[>1u')
   })
 })
+
+describe('MainScreenRenderer epoch isolation and resize ledger recovery', () => {
+  it('detaches old-document credits on startEpoch so a new session does not inherit them', () => {
+    const emu = new Emulator(8)
+    const renderer = new MainScreenRenderer(
+      { write: chunk => emu.write(chunk) },
+      { width: 80, height: 8, alternateScreenOverlays: true },
+    )
+    const firstDoc = Array.from({ length: 24 }, (_, i) => `old-${i}`)
+    renderer.render(frame(firstDoc, 8))
+    // Enter overlay and shrink so old-document rows enter `#pushed` and `#mainResizeRecords`.
+    renderer.render(frame(['ov-0'], 0, { transientSurface: 'overlay' }))
+    emu.resize(6)
+    renderer.resize(80, 6)
+    renderer.render(frame(['ov-0', 'ov-1'], 0, { transientSurface: 'overlay' }))
+
+    // Replace with a brand-new logical document via startEpoch().
+    renderer.startEpoch()
+    const secondDoc = Array.from({ length: 16 }, (_, i) => `new-${i}`)
+    renderer.render(frame(secondDoc, secondDoc.length - 6))
+    const grown = [...secondDoc, 'new-tail-0', 'new-tail-1']
+    renderer.render(frame(grown, grown.length - 6))
+    for (const row of secondDoc.slice(0, 12)) {
+      expect(emu.scrollback.filter(entry => entry === row)).toHaveLength(1)
+    }
+  })
+
+  it('recovers tail tracking after an unfollowed width wrap once new rows flush', () => {
+    const emu = new Emulator(8)
+    const renderer = new MainScreenRenderer(
+      { write: chunk => emu.write(chunk) },
+      { width: 80, height: 8, synchronized: false },
+    )
+    const wide = Array.from({ length: 20 }, (_, i) => `row-${String(i).padStart(2, '0')}-${'x'.repeat(50)}`)
+    renderer.render(frame(wide, 12))
+    // Narrow width so tracked rows wrap (marking the tail stale and leaving layout unknown).
+    emu.setWidth(40)
+    renderer.resize(40, 8)
+    renderer.render(frame(wide.map(r => r.slice(0, 40)), 12))
+    // Flush new rows at the settled width, then verify subsequent appends commit cleanly.
+    const narrowed = wide.map(r => r.slice(0, 40))
+    const extended = [...narrowed, 'after-0', 'after-1', 'after-2', 'after-3', 'after-4', 'after-5', 'after-6', 'after-7', 'after-8', 'after-9']
+    renderer.render(frame(extended, extended.length - 4))
+    const more = [...extended, 'tail-0', 'tail-1', 'tail-2', 'tail-3']
+    renderer.render(frame(more, more.length - 4))
+    expect(emu.scrollback.filter(entry => entry === 'after-0')).toHaveLength(1)
+    expect(emu.scrollback.filter(entry => entry === 'after-1')).toHaveLength(1)
+  })
+
+  it('retains still-unspent credits when older physical rows are trimmed past 4096 lines', () => {
+    const emu = new Emulator(8)
+    const renderer = new MainScreenRenderer(
+      { write: chunk => emu.write(chunk) },
+      { width: 80, height: 8, synchronized: false },
+    )
+    const rows = Array.from({ length: 5_000 }, (_, i) => `row-${i}`)
+    renderer.render(frame(rows, 10))
+    // Shrink so row-4992 enters native scrollback naturally as a credited row.
+    emu.resize(6)
+    renderer.resize(80, 6)
+    renderer.render(frame(rows, 10))
+    expect(emu.scrollback.filter(entry => entry === 'row-4992')).toHaveLength(1)
+    // Advance past 4,300 (triggering physical history trim) and then to the end.
+    renderer.render(frame(rows, 4_300))
+    renderer.render(frame(rows, 4_994))
+    expect(emu.scrollback.filter(entry => entry === 'row-4992')).toHaveLength(1)
+  })
+
+  it('does not let a pending resize in the same frame as startEpoch credit new-document rows', () => {
+    const emu = new Emulator(8)
+    const renderer = new MainScreenRenderer(
+      { write: chunk => emu.write(chunk) },
+      { width: 80, height: 8, synchronized: false },
+    )
+    const shared = Array.from({ length: 24 }, (_, i) => `same-${i}`)
+    renderer.render(frame(shared, 8))
+    // Resize AND startEpoch before the next render (same frame).
+    emu.resize(6)
+    renderer.resize(80, 6)
+    renderer.startEpoch()
+    const replacement = Array.from({ length: 24 }, (_, i) => `same-${i}`)
+    renderer.render(frame(replacement, 12))
+    const grown = [...replacement, 'next-0', 'next-1', 'next-2', 'next-3']
+    renderer.render(frame(grown, 22))
+    // Rows 16 and 17 of the replacement document must be written by the new epoch,
+    // not skipped because the old document happened to have identical text at 16..17.
+    expect(emu.scrollback.filter(entry => entry === 'same-16').length).toBeGreaterThanOrEqual(2)
+    expect(emu.scrollback.filter(entry => entry === 'same-17').length).toBeGreaterThanOrEqual(2)
+  })
+})

@@ -148,6 +148,8 @@ export class SubagentTracker {
   /** External executions have lifecycle edges, but no local Agent or transcript. */
   noteExternalRun(info: SubagentRunInfo | SubagentRunEndInfo): void {
     if (info.local) return
+    // Keep external outcome records across session switches so a failed child
+    // never reverts to `completed` on return; only bulky activity traces are capped.
     this.#externalRuns.set(info.id, info)
     if (!this.#roster.owns(info.id)) return
     this.#roster.setAgentStatus(info.id, 'stopReason' in info ? 'gone' : 'running',
@@ -160,7 +162,14 @@ export class SubagentTracker {
     const list = this.#externalActivities.get(id) ?? []
     list.push(activity)
     if (list.length > 8) list.shift()
+    this.#externalActivities.delete(id)
     this.#externalActivities.set(id, list)
+    if (this.#externalActivities.size > 256) {
+      for (const existingId of this.#externalActivities.keys()) {
+        if (this.#externalActivities.size <= 256) break
+        if (!this.#roster.owns(existingId)) this.#externalActivities.delete(existingId)
+      }
+    }
     if (!this.#roster.owns(id)) return
     this.#roster.noteExternalActivity(id, activity)
     this.#publish()

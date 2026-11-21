@@ -247,7 +247,7 @@ export async function runDoctor(options: DoctorOptions): Promise<DoctorReport> {
   add('terminal', (options.tty ?? (process.stdin.isTTY === true && process.stdout.isTTY === true)) ? 'ok' : 'not-checked',
     (options.tty ?? (process.stdin.isTTY === true && process.stdout.isTTY === true)) ? 'Interactive stdin and stdout are attached.' : 'No interactive terminal attached.')
   add('terminal-capabilities', 'not-checked', 'Program status, images and clipboard require interactive terminal checks. No terminal probes were sent.')
-  const images = imageProtocol(process.env)
+  const images = imageProtocol(environment)
   add('terminal-images', images === undefined ? 'not-configured' : 'ok',
     images === undefined
       ? 'No inline image protocol was detected for this terminal.'

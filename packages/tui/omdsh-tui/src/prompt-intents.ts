@@ -47,26 +47,6 @@ export interface PromptAction {
   scope?: 'selection' | 'list'
 }
 
-/** A surface that needs no answer, only a decision to stop. */
-export interface CancelSurface {
-  /** Label of the option that cancels; defaults to `Cancel`. */
-  cancelLabel?: string
-  /** What cancelling does and does not undo. */
-  detail?: string
-  signal?: AbortSignal
-  /**
-   * The work behind the surface, so `Esc` and `Ctrl+C` can stop it.
-   *
-   * Returning true keeps a primary turn running: a progress surface belongs to
-   * one operation, not to the session.
-   */
-  interrupt?: () => boolean | void
-  /** The surface was taken by something with a stronger claim on the screen. */
-  onSuperseded?: (input: string) => void
-  /** Repaint an open document; read on every refresh. */
-  refreshDocument?: () => string
-}
-
 /**
  * Ask for free text.
  *

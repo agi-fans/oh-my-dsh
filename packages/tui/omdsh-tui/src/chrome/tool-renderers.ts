@@ -90,7 +90,7 @@ function previewFieldLines(
     const value = read(field)
     if (value === undefined || value.trim() === '' || seen.has(value)) continue
     seen.add(value)
-    lines.push(...value.split('\n'))
+    for (const part of value.split('\n')) lines.push(part)
     if (field === 'command') break
   }
   return lines
@@ -498,7 +498,9 @@ function contentLines(content: readonly ContentBlock[] | undefined): string[] {
   if (content === undefined) return []
   const lines: string[] = []
   for (const block of content) {
-    if (block.type === 'text' || block.type === 'reasoning') lines.push(...block.text.split('\n'))
+    if (block.type === 'text' || block.type === 'reasoning') {
+      for (const part of block.text.split('\n')) lines.push(part)
+    }
     else if (block.type === 'image') lines.push(`[Image: ${block.attachment.mediaType}]`)
     else if (block.type === 'file') lines.push(`[File: ${block.attachment.name}]`)
     else if (block.type === 'tool-call') lines.push(`${block.name} ${block.arguments}`)

@@ -6,6 +6,21 @@ The format is based on [Keep a Changelog], and this project adheres to [Semantic
 
 ## [Unreleased]
 
+### Changed
+
+- Improved long-session and streaming TUI responsiveness by caching streaming Markdown prefixes, `fitFrame` width checks, theme palettes/SGR sequences, and transcript sticky headers, and fixing quadratic draft line-wrapping in `wrapIndexed`.
+- Removed the no-op `tui-command-terminal` composition mount, unused `/loop` footer rendering and timers, and unused package dependencies (`@deepseek-ai/dsh-experimental-worktree` from `@agi-fans/dsh-tui` and `@deepseek-ai/dsh-tmux-context` from `@agi-fans/oh-my-dsh`).
+
+### Deprecated
+
+- Deprecated `TuiLoopStatus` and `TuiService.setLoopStatus` in `@agi-fans/dsh-tui` (now a no-op retained for backward compatibility after `/loop` removal).
+
+### Fixed
+
+- Guarded `LocalTui`, `TerminalSession`, `SessionRuntime`, and `runner` against post-disposal terminal writes, stale cold subagent transcript inspections overwriting a newly opened session, superseded `/btw` responses painting into the active pane, leaked abort listeners, concurrent model/skill/settings updates, and `/rewind` cancellation clobbering.
+- Prevented `MainScreenRenderer` from retaining unconfirmable resize records, failing to recover tail tracking after an unfollowed width wrap, or carrying old-document credits across `startEpoch()`, while bounding scrollback history memory and making steady-state credit checks O(1).
+- Fixed short-session width clamping (`fitFrame` double-counted `topPad`), `colorDepth`/`compactLinks`/`turnDetailsKey` transcript cache keys, V8 argument-spread `RangeError` on very large transcripts, throttled Shell card output flushing on failure, supplementary CJK / combining-mark / ZWSP width measurement, compound SGR wrap preservation, duplicate OSC 8 link closing in `sliceCells`, `omdsh doctor` environment propagation for inline image detection, and missing Chinese UI translations (`Expand`, `search`, and plugin-market notices).
+
 ## [0.29.0] - 2026-11-20
 
 ### Changed

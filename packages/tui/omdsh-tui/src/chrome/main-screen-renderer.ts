@@ -211,6 +211,8 @@ interface PushedRow {
    * means "not deductible now", not "still waiting to be confirmed".
    */
   confirmationClosed?: boolean
+  /** Set once this instance has left `#pushed` (pulled back onto the screen or trimmed). */
+  removed?: boolean
 }
 
 /**
@@ -475,6 +477,8 @@ export class MainScreenRenderer {
    * for chrome, and bans a row forever instead of withdrawing one commit.
    */
   #pushed: PushedRow[] = []
+  readonly #credited = new Set<PushedRow>()
+  #maxTrimmedPushedWidth = 0
 
   /**
    * Whether native history has moved in a way this account did not follow. From then
@@ -628,10 +632,53 @@ export class MainScreenRenderer {
 
   /** Adopt a new logical transcript while retaining native history. */
   startEpoch(options: EpochOptions = {}): void {
+    const replay = options.replay ?? 'full'
     this.#newEpoch = true
-    this.#epochReplay = options.replay ?? 'full'
+    this.#epochReplay = replay
     this.#reanchor = true
     this.#adoptPhysicalAfterTransient = false
+    if (replay !== 'viewport') {
+      // Old-document row indices and credits must never apply to a replacement
+      // document, while physical rows stay in `#pushed` so height grows remain
+      // aware of native scrollback.
+      for (const row of this.#pushed) {
+        if (row.document !== undefined || row.credited || row.text !== undefined) {
+          row.document = undefined
+          row.text = undefined
+          row.credited = false
+          row.confirmationClosed = true
+        }
+      }
+      for (const row of this.#credited) {
+        row.document = undefined
+        row.text = undefined
+        row.credited = false
+        row.confirmationClosed = true
+      }
+      this.#credited.clear()
+      this.#unconfirmedProtection = []
+      this.#mainResizeRecords = []
+      // Also detach old document identity from `#normalLayout` and live screen
+      // mappings so a pending `#resize` landing in the same frame as `startEpoch()`
+      // cannot credit old-document rows against the replacement document.
+      if (typeof this.#normalLayout === 'object') {
+        this.#normalLayout = {
+          ...this.#normalLayout,
+          rowSource: this.#normalLayout.rowSource.map(() => undefined),
+          source: null,
+          sourceKnown: false,
+        }
+      }
+      this.#screenRowSource = []
+      this.#screenSource = null
+      this.#screenSourceKnown = false
+      for (const row of this.#knownOnScreen) {
+        row.document = undefined
+        row.text = undefined
+        row.credited = false
+        row.confirmationClosed = true
+      }
+    }
   }
 
   /**
@@ -792,11 +839,7 @@ export class MainScreenRenderer {
       // against the screen the previous one left.
       const records = this.#mainResizeRecords
       this.#mainResizeRecords = []
-      // Records are settled oldest first, and each was made against the screen the
-      // previous one left. Once one cannot be checked the rest have lost their
-      // context too, so the unresolved remainder is kept for a later frame rather
-      // than being thrown away.
-      let unresolvedFrom: number | undefined
+      const unresolved: ParkedMove[] = []
       for (let at = 0; at < records.length; at += 1) {
       const record = records[at] as ParkedMove
       // Three separate questions, kept apart because conflating any two of them
@@ -832,12 +875,21 @@ export class MainScreenRenderer {
         const entry = record.pushedRows?.find(
           item => item.document === row.start && item.text === undefined,
         )
-        if (entry !== undefined) {
+        if (entry !== undefined && entry.removed !== true && entry.confirmationClosed !== true) {
           entry.text = row.text
           entry.credited = true
+          this.#credited.add(entry)
         }
       }
-      if (check.remaining !== undefined && unresolvedFrom === undefined) unresolvedFrom = at
+      // Retain a record only when it can still confirm at least one unconfirmed
+      // row on a future frame; resolved or unconfirmable records are dropped
+      // individually so one stalled browse comparison cannot drag the queue.
+      const retryable = record.sourceKnown && record.source !== null && record.sourceUsable
+        && record.pushedRows !== undefined
+        && record.pushedRows.some(item =>
+          item.document !== undefined && item.text === undefined
+          && item.removed !== true && item.confirmationClosed !== true)
+      if (check.remaining !== undefined && retryable) unresolved.push(record)
 
       // A confirmed credit is subtracted from what the flush owes rather than
       // folded into the boundary, because the rows between the two are still owed:
@@ -854,7 +906,7 @@ export class MainScreenRenderer {
       // this record was parked belongs to a **later** move and is left alone:
       // consuming it here would settle a resize the record never described.
       }
-      if (unresolvedFrom !== undefined) this.#mainResizeRecords = records.slice(unresolvedFrom)
+      if (unresolved.length > 0) this.#mainResizeRecords = unresolved
     }
 
     // The reverse move belongs to the normal buffer, so the plan exits the alternate buffer
@@ -1097,7 +1149,7 @@ export class MainScreenRenderer {
       this.#epochReplay = 'full'
       this.#resize = undefined
     } else if (this.#pendingEvent !== undefined
-      || (!this.#tailStale && creditedRows(this.#pushed, next).length > 0)) {
+      || (!this.#tailStale && this.#activeCreditedRows(next).length > 0)) {
       const transition = this.#pendingEvent?.transition
       const baseline = transition === undefined
         ? { rows: this.#screen.slice(0, this.#height), clear: true }
@@ -1141,7 +1193,7 @@ export class MainScreenRenderer {
         this.#reflowFrom = undefined
         this.#reanchor = false
         this.#adoptPhysicalAfterTransient = false
-      } else if (candidatePhysical > this.#physical || (!this.#tailStale && creditedRows(this.#pushed, next).length > 0)) {
+      } else if (candidatePhysical > this.#physical || (!this.#tailStale && this.#activeCreditedRows(next).length > 0)) {
         // What still needs committing, as a set difference rather than one
         // number. The frozen boundary is the floor — an earlier frame already
         // committed everything above it. The terminal's own move removes a
@@ -1166,18 +1218,19 @@ export class MainScreenRenderer {
     // real history: an unfollowed move may have pulled that very instance back off it,
     // and skipping a row the terminal no longer holds would drop it entirely rather
     // than merely sending it twice.
-    const committed = this.#tailStale ? [] : creditedRows(this.#pushed, next)
+    const committed = this.#tailStale ? [] : this.#activeCreditedRows(next)
         const floor = Math.min(candidatePhysical, Math.max(0, this.#physical))
         // Rows this flush actually settled stop being deductible — their positions
         // stay, because the terminal still holds them and a grow pulls from exactly
         // there. A row past the candidate has not been reached at all and keeps its
         // claim for the frame that does reach it.
-        for (const row of this.#pushed) {
-          if (row.credited && row.document !== undefined && row.document < candidatePhysical) {
+        for (const row of this.#credited) {
+          if (row.document !== undefined && row.document < candidatePhysical) {
             row.credited = false
             // Same rule as the boundary settlement: retiring settles the position, so its
             // confirmation is closed while the position itself stays.
             row.confirmationClosed = true
+            this.#credited.delete(row)
           }
         }
         // The plan itself is not gated on there being rows to commit: a protection scroll
@@ -1565,7 +1618,7 @@ export class MainScreenRenderer {
       this.#screenRowSource[at] = inside ? document : undefined
       if (!inside) continue
       lowest = lowest === undefined ? document : Math.min(lowest, document)
-      highest = highest === undefined ? document : Math.max(highest, document) + 1
+      highest = highest === undefined ? document + 1 : Math.max(highest, document + 1)
     }
     this.#screenSource = lowest === undefined || highest === undefined
       ? { start: range.documentStart, end: range.documentStart }
@@ -1647,12 +1700,35 @@ export class MainScreenRenderer {
    * but they do occupy the **tail**, and a later grow pulls from exactly there. A
    * ledger that only knows about deductible rows would pop the wrong position.
    */
+  #activeCreditedRows(next?: readonly string[]): { start: number; end: number }[] {
+    if (this.#credited.size === 0) return []
+    return creditedRows([...this.#credited], next)
+  }
+
+  #trimPushedHistory(): void {
+    const limit = 4096
+    if (this.#pushed.length <= limit) return
+    const overflow = this.#pushed.length - limit
+    const dropped = this.#pushed.splice(0, overflow)
+    // Trimmed rows are still sitting deep in native scrollback (not pulled back
+    // onto the screen), so any unspent credit remains in `#credited` until
+    // retired by a flush, boundary settlement, stale tail, or new epoch.
+    for (const row of dropped) {
+      const w = visibleWidth(row.shown)
+      if (w > this.#maxTrimmedPushedWidth) this.#maxTrimmedPushedWidth = w
+    }
+    this.#provenTail = Math.min(this.#provenTail, this.#pushed.length)
+  }
+
   #noteFlushed(next: readonly string[], documents: readonly number[]): void {
     // A real flush appends positions in the order they were sent, so from here the newest
     // entries do describe the tail again; a pull may consume them.
     // A real flush appends its positions in the order they were sent, so the ordered suffix grows
     // by exactly that many; those positions are no longer part of the unknown front.
-    if (documents.length > 0) this.#provenTail += documents.length
+    if (documents.length > 0) {
+      this.#tailStale = false
+      this.#provenTail += documents.length
+    }
     for (const document of documents) {
       this.#pushed.push({
         document,
@@ -1661,6 +1737,7 @@ export class MainScreenRenderer {
         credited: false,
       })
     }
+    this.#trimPushedHistory()
   }
 
   /**
@@ -1789,6 +1866,15 @@ export class MainScreenRenderer {
       // longer describes the real end of native history. Saying so is what keeps a
       // later pull from taking an older position for the newest one.
       this.#tailStale = true
+      // Pre-stale credits and pending protection copies came from before the unfollowed
+      // move, so retire them now rather than letting them resurrect once a later flush
+      // re-establishes a proven tail suffix.
+      for (const row of this.#credited) {
+        row.credited = false
+        row.confirmationClosed = true
+      }
+      this.#credited.clear()
+      this.#unconfirmedProtection = []
       // The end of native history is now unproven, so neither quantity below still describes it.
       // The suffix's order is void, and the counted front — which was a **lower bound on what
       // history still holds** — is void for the same reason: a move this account could not follow
@@ -1812,9 +1898,10 @@ export class MainScreenRenderer {
           credited: false,
         })
       }
-      this.#pushed.push(...rows)
+      for (const row of rows) this.#pushed.push(row)
       // A push sends those rows out in order, so they extend the ordered suffix by that many.
       this.#provenTail += rows.length
+      this.#trimPushedHistory()
       record.pushedRows = rows
     }
     const pulled = record.pulledBack ?? 0
@@ -1875,6 +1962,10 @@ export class MainScreenRenderer {
       const knownTaken = knownCount > 0 && !this.#tailStale
         ? this.#pushed.splice(-knownCount, knownCount)
         : []
+      for (const row of knownTaken) {
+        row.removed = true
+        this.#credited.delete(row)
+      }
       this.#provenTail = Math.max(0, this.#provenTail - knownTaken.length)
       const unknownCount = pulled - knownTaken.length
       if (unknownCount > 0) {
@@ -1918,7 +2009,9 @@ export class MainScreenRenderer {
       // their source — and they are now on the screen. Dropping them here is what left a
       // later protection plan unable to say what it had scrolled out.
       record.pulledRows = taken
-      if (this.#unknownOnScreen) this.#knownOnScreen.push(...taken)
+      if (this.#unknownOnScreen) {
+        for (const row of taken) this.#knownOnScreen.push(row)
+      }
       this.#pulledFromHistory(taken)
       // Fewer positions than the move claims means the tail does not reach back that
       // far, so what came onto the screen is not known — say so rather than padding
@@ -1995,6 +2088,7 @@ export class MainScreenRenderer {
     // narrow, and this account would go on using the old positions. Every tracked row is
     // checked as well. History the account never watched cannot be examined at all, so
     // that part stays an assumption — the guard is partial, not general.
+    if (this.#maxTrimmedPushedWidth > transition.narrowestWidth) return true
     return this.#pushed.some(row => tooWide(row.shown))
   }
 
@@ -2037,7 +2131,7 @@ export class MainScreenRenderer {
       // below, while one that is gone stands for nothing at all.
       // Presence on the stack is not eligibility: retirement keeps the position. A copy whose
       // confirmation has been closed, or one already confirmed, must not be credited again.
-      if (!this.#pushed.includes(copy)) continue
+      if (copy.removed === true) continue
       if (copy.confirmationClosed === true || copy.credited) continue
       if (copy.document === undefined) continue
       const at = frameTextIndex(frame, next, copy.document)
@@ -2049,6 +2143,7 @@ export class MainScreenRenderer {
       if ((next[at] ?? '') === copy.shown) {
         copy.text = copy.shown
         copy.credited = true
+        this.#credited.add(copy)
       }
     }
     this.#unconfirmedProtection = kept
@@ -2068,10 +2163,6 @@ export class MainScreenRenderer {
     // The scroll really sent `#height` positions into history, so the newest that many become
     // unknown in arrangement: an empty confirmed set is still a tail nobody can order.
     this.#unknownFront = this.#height
-    this.#provenTail = 0
-    // The scroll pushes `#height` positions into history whether or not any own instance was
-    // identifiable, so the whole tail becomes unordered here: an empty confirmed set is still a
-    // tail nobody can order. The collection and the physical range are held separately.
     this.#provenTail = 0
     const rows = this.#knownOnScreen
     this.#knownOnScreen = []
@@ -2093,9 +2184,11 @@ export class MainScreenRenderer {
         // happened to the row it was read from — retired, closed, pulled — says nothing about
         // this one, so its own confirmation state starts open and is decided by this result.
         confirmationClosed: false,
+        removed: false,
       }
       this.#pushed.push(copy)
       if (matches) {
+        this.#credited.add(copy)
         confirmed.push({ start: row.document, end: row.document + 1 })
       } else if (at === undefined) {
         // The frame could not locate the row at all, so nothing has been decided: keep the same
@@ -2104,6 +2197,7 @@ export class MainScreenRenderer {
         this.#unconfirmedProtection.push(copy)
       }
     }
+    this.#trimPushedHistory()
     // Park on the last row so the scroll really pushes the window out, then walk it out.
     // `csi` is zero-based and adds one, so the last row is `height - 1`, column 0 —
     // sending `height` would rely on the terminal clamping an out-of-range position.
@@ -2124,12 +2218,12 @@ export class MainScreenRenderer {
     // the rows may be back on the screen, and stepping the boundary over them drops
     // them for good. The same trust range governs this path as governs deduction.
     if (this.#tailStale) return
-    for (const row of creditedRows(this.#pushed)) {
+    for (const row of this.#activeCreditedRows()) {
       if (row.start > this.#physical) continue
       this.#physical = Math.max(this.#physical, row.end)
       // Retired, not removed. The row is still in native history and still occupies
       // the tail; only its right to be deducted from a flush is gone.
-      for (const item of this.#pushed) {
+      for (const item of this.#credited) {
         // The **whole** range this credit stands for, not the row it happens to start at.
         // A merge means the flush settled every physical row between its ends, so leaving the
         // interior positions credited would let a later frame treat an already-settled range as
@@ -2142,6 +2236,7 @@ export class MainScreenRenderer {
           // the instance keeps its place on the stack, but it may not be granted credit again by
           // a later frame that happens to read the same text.
           item.confirmationClosed = true
+          this.#credited.delete(item)
         }
       }
     }

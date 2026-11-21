@@ -40,7 +40,6 @@ import { renderGoalBar } from '../chrome/goal-bar.ts'
 import { padToWidth, sliceCells, stripAnsi, truncateToWidth, visibleWidth, wrapCode, wrapTextStable } from '../chrome/width.ts'
 import type {
   TuiInspectedSubagent,
-  TuiLoopStatus,
   TuiSessionControls,
   TuiSessionStats,
   TuiSubagentPhase,
@@ -164,8 +163,6 @@ export interface ViewOptions {
   sessionStats?: TuiSessionStats
   /** Harness-owned collaboration and permission state. Permission paints on the composer cap. */
   sessionControls?: TuiSessionControls
-  /** Process-local repeated-prompt state rendered beside model controls. */
-  loopStatus?: TuiLoopStatus
   /** Live descendant-subagent roster rendered above the composer. */
   subagents?: TuiSubagentRoster
   /** Roster row the reader is pointing at, when the bar owns the keyboard. */
@@ -249,12 +246,35 @@ export interface ViewOptions {
 
 /** The depth a frame encodes with. */
 function colorDepthOf(options: ViewOptions): ColorDepth {
-  return options.colorDepth ?? 'ansi16'
+  return options.colorDepth ?? 'truecolor'
 }
 
 /** Cache key for terminal styling and the language of rendered labels. */
 function terminalKey(options: ViewOptions): string {
-  return `${colorDepthOf(options)}|${terminalColorsKey(options.terminal)}|${options.language ?? 'en'}`
+  return `${colorDepthOf(options)}|${terminalColorsKey(options.terminal)}|${options.language ?? 'en'}|${options.compactLinks === true ? 1 : 0}`
+}
+
+/** Append without spreading into function arguments (avoids V8 call-stack overflow on large transcripts). */
+function appendAll<T>(target: T[], source: readonly T[]): void {
+  for (let i = 0; i < source.length; i += 1) target.push(source[i]!)
+}
+
+const blockMetaCache = new WeakMap<readonly Block[], { hasRunningTool: boolean; firstPending: number }>()
+
+function blockMeta(blocks: readonly Block[]): { hasRunningTool: boolean; firstPending: number } {
+  let meta = blockMetaCache.get(blocks)
+  if (meta !== undefined) return meta
+  let hasRunningTool = false
+  let firstPending = -1
+  for (let i = 0; i < blocks.length; i += 1) {
+    const block = blocks[i]!
+    if (!hasRunningTool && block.kind === 'tool' && block.status === 'running') hasRunningTool = true
+    if (firstPending < 0 && isBlockPending(block)) firstPending = i
+    if (hasRunningTool && firstPending >= 0) break
+  }
+  meta = { hasRunningTool, firstPending }
+  blockMetaCache.set(blocks, meta)
+  return meta
 }
 
 function exclusiveDiffs(presentation: TuiToolPresentation | undefined): readonly FileDiff[] | undefined {
@@ -304,7 +324,13 @@ function assistantContentLines(lines: readonly string[], width: number, paddingX
   return lines.map(line => {
     const key = `${width}:${paddingX}:${line}`
     const cached = assistantRowCache.get(key)
-    if (cached !== undefined) return cached.row
+    if (cached !== undefined) {
+      if (assistantRowCache.size >= 2048) {
+        assistantRowCache.delete(key)
+        assistantRowCache.set(key, cached)
+      }
+      return cached.row
+    }
     const row = padToWidth(margin + line + margin, width)
     const size = key.length + row.length
     if (size <= ASSISTANT_ROW_CACHE_CHARS) {
@@ -620,19 +646,21 @@ function toolBlockLines(
       ...outputRows,
     ]
     if (programInput) {
-      body.push('', ...wrapTextStable(theme.dim(theme.text('Raw arguments')), room),
-        ...highlightedLines(input.split('\n'), 'json', theme, undefined, room))
+      body.push('')
+      appendAll(body, wrapTextStable(theme.dim(theme.text('Raw arguments')), room))
+      appendAll(body, highlightedLines(input.split('\n'), 'json', theme, undefined, room))
     }
     // Keep the tool's rich presentation, but expose received text it replaced.
     if (block.output !== '' && (diffs !== undefined || block.output !== output.join('\n'))) {
-      body.push('', ...wrapTextStable(theme.dim(theme.text('Raw result')), room))
+      body.push('')
+      appendAll(body, wrapTextStable(theme.dim(theme.text('Raw result')), room))
       for (const line of block.output.split('\n')) {
-        body.push(...wrapTextStable(theme.fg(block.status === 'error' ? 'error' : 'toolOutput', line), room))
+        appendAll(body, wrapTextStable(theme.fg(block.status === 'error' ? 'error' : 'toolOutput', line), room))
       }
     }
   } else if (diffs !== undefined) {
     body = wrapPaintedDiffRows(alignFileDiffs(diffs), theme, room)
-    if (block.status === 'error' && block.output !== '') body.push(...wrapTextStable(theme.fg('error', block.output), room))
+    if (block.status === 'error' && block.output !== '') appendAll(body, wrapTextStable(theme.fg('error', block.output), room))
   } else if (full || !read || block.status === 'error') {
     const output = toolOutputLines(block, presentation.output, subject, theme, room)
     const input = presentation.input.length > 0 && !shell && !read && (call?.card === 'generic' || (call === undefined && !/^(grep|glob|find|ls|search|write|edit)$/.test(block.name)))
@@ -664,7 +692,10 @@ function toolBlockLines(
   if (!full && read && block.status !== 'error' && block.output !== '' && detailsKey !== 'Disabled') {
     body.push(...wrapTextStable(theme.fg('dim', `${detailsKey}: Expand result`), room))
   }
-  if (full && diffs === undefined && block.status === 'error' && call?.card === 'diff') rows.push('', ...wrapPaintedDiffRows(alignFileDiffs(call.diffs), theme, room))
+  if (full && diffs === undefined && block.status === 'error' && call?.card === 'diff') {
+    rows.push('')
+    appendAll(rows, wrapPaintedDiffRows(alignFileDiffs(call.diffs), theme, room))
+  }
   if (body.length > 0) {
     if (rows.length > 0) rows.push('')
     for (const row of body) rows.push(row)
@@ -672,7 +703,7 @@ function toolBlockLines(
   const exitReportedByJob = result?.card === 'terminal' && result.exitCode !== undefined
     && block.job?.detail === `exit code: ${result.exitCode}`
   if (!showTitle && mode !== 'details' && presentation.summary && !exitReportedByJob && (result?.card === 'terminal' || result?.card === 'search')) {
-    rows.push(...wrapTextStable(theme.dim(presentation.summary), room))
+    appendAll(rows, wrapTextStable(theme.dim(presentation.summary), room))
   }
   if (block.status === 'error') rows.push(...wrapTextStable(theme.fg('error', 'Tool failed'), room))
   if (block.job !== undefined) {
@@ -719,7 +750,7 @@ function reasoningSummaryRow(block: Extract<Block, { kind: 'assistant' }>, theme
 /** A disclosure header stays small; complete tool payloads are laid out only on demand. */
 function toolDisclosureLines(block: Extract<Block, { kind: 'tool' }>, theme: Theme, width: number, open: boolean, detailsKey = 'Alt+O', spinnerFrame = 0, raw = false): string[] {
   const rows = toolRowLine(block, theme, width, spinnerFrame, open)
-  if (open) rows.push(...toolBlockLines(block, theme, width, raw ? 'details' : 'full', detailsKey, false))
+  if (open) appendAll(rows, toolBlockLines(block, theme, width, raw ? 'details' : 'full', detailsKey, false))
   return rows
 }
 
@@ -743,8 +774,8 @@ interface GroupRenderContext {
   depth: ColorDepth
   width: number
   matches: ReadonlySet<number>
-  /** Every query occurrence, in reading order, for the painter. */
-  occurrences: readonly TranscriptSearchMatch[]
+  /** Every query occurrence, indexed by block, for O(1) lookup in the painter. */
+  occurrencesByBlock: ReadonlyMap<number, readonly TranscriptSearchMatch[]>
   /** Thoughts the reader has opened past the transcript's folded default. */
   openedThoughts: ReadonlySet<string>
   /**
@@ -798,7 +829,7 @@ function groupMemberLines(
       : block.kind === 'notice' ? blockLines(block, theme, width) : []
     groupMemberCache.set(block, { signature, lines })
   }
-  const painted = [...paintSearch(lines, index, context.occurrences, theme)]
+  const painted = [...paintSearch(lines, index, context.occurrencesByBlock.get(index), theme)]
   if (options.selectedProcess === index && painted.length > 0) {
     painted[0] = theme.fg('accent', '❯') + sliceCells(painted[0]!, 1, Math.max(0, width - 1))
   }
@@ -815,9 +846,10 @@ function groupMemberLines(
 function paintSearch(
   lines: readonly string[],
   block: number,
-  occurrences: readonly TranscriptSearchMatch[],
+  occurrences: readonly TranscriptSearchMatch[] | undefined,
   theme: Theme,
 ): readonly string[] {
+  if (occurrences === undefined || occurrences.length === 0) return lines
   const spansByRow = matchedRows(occurrences, block)
   if (spansByRow.size === 0) return lines
   return lines.map((line, row) => {
@@ -964,20 +996,20 @@ export function blockLines(
     const lines: string[] = []
     if (block.reasoning !== '' && !omitReasoning) {
       const collapsed = hideThinking && !thinkingOpen
-      lines.push(...(processDisclosure ? reasoningDisclosureLines(block, theme, width, !collapsed, mathMode) : collapsed
+      appendAll(lines, processDisclosure ? reasoningDisclosureLines(block, theme, width, !collapsed, mathMode) : collapsed
         ? [reasoningSummaryRow(block, theme, width)]
-        : openReasoningLines(block, theme, width, mathMode)))
+        : openReasoningLines(block, theme, width, mathMode))
       if (block.text !== '') lines.push('')
     }
     if (block.text === '' && block.reasoning === '' && block.streaming) {
       const paddingX = width > ASSISTANT_PADDING_X * 2 ? ASSISTANT_PADDING_X : 0
-      lines.push(...assistantContentLines([theme.fg('dim', '…')], width, paddingX))
+      appendAll(lines, assistantContentLines([theme.fg('dim', '…')], width, paddingX))
     } else if (block.text !== '') {
-      lines.push(...assistantMarkdown(block.text, theme, width, { ...(hasExplicitTextColor(theme) ? { color: 'text' as const } : {}), mathMode, mermaidMode }, block.streaming))
+      appendAll(lines, assistantMarkdown(block.text, theme, width, { ...(hasExplicitTextColor(theme) ? { color: 'text' as const } : {}), mathMode, mermaidMode }, block.streaming))
     }
     if (block.interrupted === true) {
       const paddingX = width > ASSISTANT_PADDING_X * 2 ? ASSISTANT_PADDING_X : 0
-      lines.push(...assistantContentLines([theme.fg('dim', '· ' + theme.text('interrupted'))], width, paddingX))
+      appendAll(lines, assistantContentLines([theme.fg('dim', '· ' + theme.text('interrupted'))], width, paddingX))
     }
     return lines
   }
@@ -1086,7 +1118,8 @@ function renderTranscriptBoundary(label: string, theme: Theme, width: number): s
  * Plain text only — the caller strips SGR — and cached on the block array, which
  * is replaced rather than mutated whenever the transcript changes.
  */
-const renderedBlockCache = new WeakMap<readonly Block[], ReadonlyMap<string, readonly SearchableBlock[]>>()
+const RENDERED_BLOCK_CACHE_MAX_KEYS = 8
+const renderedBlockCache = new WeakMap<readonly Block[], Map<string, readonly SearchableBlock[]>>()
 
 export function renderedBlocks(state: TranscriptState, options: {
   language?: import('../locale/index.ts').UiLanguage
@@ -1115,19 +1148,27 @@ export function renderedBlocks(state: TranscriptState, options: {
     options.language,
     options.compactLinks,
   )
-  const key = [options.width, options.colors, options.colorDepth, options.themeName,
-    options.language, options.compactLinks, JSON.stringify(options.terminal), options.mathMode, options.mermaidMode, options.showFileChanges !== false].join('\0')
-  const cached = renderedBlockCache.get(state.blocks)?.get(key)
-  if (cached !== undefined) return cached
+  const key = [options.width, options.colors, options.colorDepth ?? 'truecolor', options.themeName,
+    options.language, options.compactLinks, terminalColorsKey(options.terminal), options.mathMode, options.mermaidMode, options.showFileChanges !== false].join('\0')
+  const existing = renderedBlockCache.get(state.blocks)
+  const cached = existing?.get(key)
+  if (cached !== undefined) {
+    existing!.delete(key)
+    existing!.set(key, cached)
+    return cached
+  }
   const blocks: SearchableBlock[] = state.blocks.map((block, index) => ({
     block: index,
     // The source text is the fallback for a block kind the painter does not lay
     // out as rows of its own; matching something is better than matching nothing.
     lines: block.kind === 'workspace' && options.showFileChanges === false ? [] : renderedRows(block, theme, options).map(stripAnsi),
   }))
-  const byKey = new Map(renderedBlockCache.get(state.blocks) ?? [])
+  const byKey = existing ?? new Map<string, readonly SearchableBlock[]>()
+  while (byKey.size >= RENDERED_BLOCK_CACHE_MAX_KEYS) {
+    byKey.delete(byKey.keys().next().value!)
+  }
   byKey.set(key, blocks)
-  renderedBlockCache.set(state.blocks, byKey)
+  if (existing === undefined) renderedBlockCache.set(state.blocks, byKey)
   return blocks
 }
 
@@ -1155,16 +1196,45 @@ export function blockSearchText(block: Block): string {
   return block.text
 }
 
+const FIT_WIDTH_CACHE_MAX = 8192
+const fitWidthCache = new Map<string, number>()
+
+function cachedVisibleWidth(line: string): number {
+  const cached = fitWidthCache.get(line)
+  if (cached !== undefined) return cached
+  const width = visibleWidth(line)
+  if (line.length <= 4096) {
+    if (fitWidthCache.size >= FIT_WIDTH_CACHE_MAX) {
+      // Evict oldest quarter instead of clearing the whole cache at once.
+      let evict = FIT_WIDTH_CACHE_MAX >> 2
+      for (const key of fitWidthCache.keys()) {
+        fitWidthCache.delete(key)
+        if (--evict <= 0) break
+      }
+    }
+    fitWidthCache.set(line, width)
+  }
+  return width
+}
+
 function fitFrame(lines: string[], width: number, stablePrefix = 0): string[] {
   let fitted: string[] | undefined
   const start = Math.max(0, Math.min(lines.length, stablePrefix))
   for (let index = start; index < lines.length; index += 1) {
     const line = lines[index]!
-    if (visibleWidth(line) <= width) continue
+    if (cachedVisibleWidth(line) <= width) continue
     fitted ??= lines.slice()
     fitted[index] = truncateToWidth(line, width)
   }
   return fitted ?? lines
+}
+
+interface StickyHeaderTemplate {
+  /** Offset from `transcriptStart + topPad`. */
+  readonly start: number
+  /** Offset from `transcriptStart + topPad`, or `undefined` when it extends to `body.length`. */
+  readonly end: number | undefined
+  readonly text: string
 }
 
 interface TranscriptBodyCache {
@@ -1216,6 +1286,12 @@ interface TranscriptBodyCache {
   lines: readonly string[]
   blockStarts: readonly number[]
   blockDrawStarts: readonly number[]
+  stickyTemplates: readonly StickyHeaderTemplate[]
+  stickyCache?: {
+    offset: number
+    bodyLength: number
+    headers: readonly { start: number; end: number; text: string }[]
+  }
 }
 
 /**
@@ -1230,6 +1306,7 @@ interface BlockLinesCache {
   mathMode: import('../chrome/math.ts').MathMode | undefined
   mermaidMode: import('../chrome/mermaid.ts').MermaidMode | undefined
   toolDetailsKey: string | undefined
+  turnDetailsKey: string | undefined
   toolDetails: boolean
   rawTool: boolean
   /** A command output the reader opened, so its own rows must be recomputed. */
@@ -1274,6 +1351,7 @@ function cachedBlockLines(
     && cached.mathMode === options.mathMode
     && cached.mermaidMode === options.mermaidMode
     && cached.toolDetailsKey === options.toolDetailsKey
+    && cached.turnDetailsKey === options.turnDetailsKey
     && cached.rawTool === rawTool
     && cached.toolDetails === (block.kind === 'tool' && options.expandedTools?.has(block.callId) === true)
     && cached.expandedOutput === (options.expandedOutputs?.has(block) === true)) return cached.lines
@@ -1299,6 +1377,7 @@ function cachedBlockLines(
     mathMode: options.mathMode,
     mermaidMode: options.mermaidMode,
     toolDetailsKey: options.toolDetailsKey,
+    turnDetailsKey: options.turnDetailsKey,
     toolDetails,
     rawTool,
     expandedOutput: options.expandedOutputs?.has(block) === true,
@@ -1564,6 +1643,7 @@ interface TranscriptBody {
   /** Every query occurrence in this layout, for the composer hint's count. */
   occurrences: readonly TranscriptSearchMatch[]
   searchRow: number | undefined
+  resolveStickyHeaders: (offset: number, bodyLength: number) => readonly { start: number; end: number; text: string }[]
 }
 
 /**
@@ -1607,10 +1687,12 @@ function renderTranscriptBody(
   const openedGroups = [...(options.openedGroups ?? [])].sort().join('\0')
   // A command output the reader opened paints different rows, so the body cache
   // has to see it; without this the frame is reused and the key looks dead.
-  const expandedOutputs = state.blocks.flatMap((block, index) => options.expandedOutputs?.has(block) ? [index] : []).join(',')
+  const expandedOutputs = (options.expandedOutputs?.size ?? 0) === 0
+    ? ''
+    : state.blocks.flatMap((block, index) => options.expandedOutputs?.has(block) ? [index] : []).join(',')
   const themeName = options.themeName ?? 'dark'
   const depth = colorDepthOf(options)
-  const animatedSpinnerFrame = state.blocks.some(block => block.kind === 'tool' && block.status === 'running')
+  const animatedSpinnerFrame = blockMeta(state.blocks).hasRunningTool
     ? spinnerFrame
     : -1
   const search = options.transcriptSearch
@@ -1665,12 +1747,23 @@ function renderTranscriptBody(
       // Recomputed on a cache hit from the same input, so the hint's count is
       // never a stale number left over from an earlier query.
       occurrences,
+      resolveStickyHeaders: (offset, bodyLength) => resolveStickyHeaders(cached, offset, bodyLength),
     }
   }
 
   const focusHit = search === undefined ? undefined : occurrences[search.focus]
   let searchRow: number | undefined
-  const matches = new Set(occurrences.map(match => match.block))
+  const matches = new Set<number>()
+  const occurrencesByBlock = new Map<number, TranscriptSearchMatch[]>()
+  for (const match of occurrences) {
+    matches.add(match.block)
+    let list = occurrencesByBlock.get(match.block)
+    if (list === undefined) {
+      list = []
+      occurrencesByBlock.set(match.block, list)
+    }
+    list.push(match)
+  }
   const lines: string[] = []
   const fileRegions: TranscriptFileRegion[] = []
   const disclosures: TranscriptDisclosure[] = []
@@ -1731,10 +1824,16 @@ function renderTranscriptBody(
     if (group.answer !== undefined && group.answer !== group.start) groupOf[group.answer] = -1
     if (group.tookThought && group.answer !== undefined) absorbed.add(group.answer)
     if (group.turn !== undefined) lastOfTurn.set(group.turn, index)
+    let groupHasMatch = false
+    if (matches.size > 0) {
+      for (let at = group.start; at < group.until; at += 1) {
+        if (matches.has(at)) { groupHasMatch = true; break }
+      }
+    }
     const asked = toolsExpanded
       || options.openedGroups?.has(group.key) === true
-      || state.blocks.slice(group.start, group.until).some(block => block.kind === 'tool' && options.expandedTools?.has(block.callId))
-      || [...matches].some(index => index >= group.start && index < group.until)
+      || ((options.expandedTools?.size ?? 0) > 0 && state.blocks.slice(group.start, group.until).some(block => block.kind === 'tool' && options.expandedTools?.has(block.callId)))
+      || groupHasMatch
       || options.focusBlock !== undefined
         && options.focusBlock >= group.start && options.focusBlock < group.until
     if (asked) openGroups.add(index)
@@ -1750,7 +1849,7 @@ function renderTranscriptBody(
   let liveFrom: number | undefined
   const context: GroupRenderContext = {
     blocks: state.blocks, theme, themeName, depth, width: options.width,
-    matches, occurrences, options: { ...options, expandedReasoning: openedThoughts, expandedOutputs: searchOutputs },
+    matches, occurrencesByBlock, options: { ...options, expandedReasoning: openedThoughts, expandedOutputs: searchOutputs },
     openedThoughts,
     spinnerFrame,
   }
@@ -1819,7 +1918,7 @@ function renderTranscriptBody(
             : reply ? cachedBlockLines(member, options, theme, themeName, depth, toolsExpanded, true) : groupMemberLines(at, context)
           if (member.kind === 'tool') disclosureAt(at, lines.length)
           regionsAt(at, lines.length, rows.length)
-          lines.push(...rows)
+          appendAll(lines, rows)
         }
       }
       // The turn's answer, painted as a row of its own between the run's work
@@ -1857,8 +1956,11 @@ function renderTranscriptBody(
             ? bodyRow + thoughtRow + focusHit.row
             : lines.length + focusHit.row - thoughtLines
         }
-        const answerHits = thoughtLines === 0 ? occurrences : occurrences.map(hit => hit.block === group.answer ? { ...hit, row: hit.row - thoughtLines } : hit)
-        for (const line of paintSearch(rendered, group.answer, answerHits, theme)) lines.push(line)
+        const blockHits = occurrencesByBlock.get(group.answer)
+        const answerHits = blockHits === undefined || thoughtLines === 0
+          ? blockHits
+          : blockHits.map(hit => ({ ...hit, row: hit.row - thoughtLines }))
+        appendAll(lines, paintSearch(rendered, group.answer, answerHits, theme))
         if (thoughtHit && thoughtRow !== undefined) blockStarts[group.answer] = bodyRow + thoughtRow
         if ((thoughtHit || options.selectedProcess === group.answer) && thoughtRow !== undefined) offsets.set(group.answer, thoughtRow)
         // One block, two rows: the run painted its thought above, this painted
@@ -1957,7 +2059,7 @@ function renderTranscriptBody(
       })
     }
     regionsAt(index, lines.length, rendered.length, expanded)
-    lines.push(...paintSearch(rendered, index, occurrences, theme))
+    appendAll(lines, paintSearch(rendered, index, occurrencesByBlock.get(index), theme))
     blockDrawStarts[index] = blockStarts[index]!
     previous = block
   }
@@ -1972,8 +2074,9 @@ function renderTranscriptBody(
     lines[selectedTool.row] = padToWidth(truncateToWidth(content, selectedTool.actionColumn - 1), selectedTool.actionColumn)
       + theme.fg('accent', '[···]') + '  '
   }
+  const stickyTemplates = buildStickyHeaderTemplates(state.blocks, blockStarts, lines, disclosures, theme, options.width)
   const foldShape = foldMarks.map(mark => mark.key).join('\u0001')
-  transcriptBodyCache.set(state.blocks, {
+  const entry: TranscriptBodyCache = {
     fileRegions,
     disclosures,
     mathMode: options.mathMode,
@@ -2006,8 +2109,75 @@ function renderTranscriptBody(
     liveFrom,
     lines,
     blockStarts,
-  })
-  return { lines, blockStarts, blockDrawStarts, fileRegions, disclosures, foldShape, foldMarks, liveFrom, occurrences, searchRow }
+    stickyTemplates,
+  }
+  transcriptBodyCache.set(state.blocks, entry)
+  return {
+    lines, blockStarts, blockDrawStarts, fileRegions, disclosures, foldShape, foldMarks, liveFrom, occurrences, searchRow,
+    resolveStickyHeaders: (offset, bodyLength) => resolveStickyHeaders(entry, offset, bodyLength),
+  }
+}
+
+function buildStickyHeaderTemplates(
+  blocks: readonly Block[],
+  blockStarts: readonly number[],
+  lines: readonly string[],
+  disclosures: readonly TranscriptDisclosure[],
+  theme: Theme,
+  width: number,
+): StickyHeaderTemplate[] {
+  const templates: StickyHeaderTemplate[] = []
+  const padding = width > 4 ? 2 : 0
+  const padStr = ' '.repeat(padding)
+  const labelBudget = Math.max(1, width - padding * 2)
+  for (let at = 0; at < blocks.length; at += 1) {
+    const block = blocks[at]!
+    if (block.kind !== 'user') continue
+    const previous = templates.at(-1)
+    if (previous !== undefined) {
+      templates[templates.length - 1] = { ...previous, end: blockStarts[at]! }
+    }
+    const label = truncateToWidth(promptSummary(block), labelBudget)
+    templates.push({
+      start: blockStarts[at + 1] ?? lines.length,
+      end: undefined,
+      text: paintSurface(theme, 'userMessageBg', 'userMessageText', padToWidth(padStr + label, width)),
+    })
+  }
+  // Tool context takes precedence in the existing single pinned row. Only
+  // painted detail spans participate; folded calls and following replies do not.
+  for (const target of disclosures) {
+    if (target.detailEnd === undefined) continue
+    const block = blocks[target.block]
+    if (block?.kind !== 'tool') continue
+    const title = lines[target.row]!
+    const titleStart = block.parentCallId === undefined ? 4 : 6
+    const label = sliceCells(title, titleStart, (target.actionColumn ?? width) - titleStart).trimEnd()
+    templates.push({
+      start: target.row + 1,
+      end: target.detailEnd,
+      text: paintSurface(theme, 'toolAltBg', 'toolOutput', padToWidth(truncateToWidth('  ' + label, width), width)),
+    })
+  }
+  return templates
+}
+
+function resolveStickyHeaders(
+  entry: TranscriptBodyCache,
+  offset: number,
+  bodyLength: number,
+): readonly { start: number; end: number; text: string }[] {
+  const cached = entry.stickyCache
+  if (cached !== undefined && cached.offset === offset && cached.bodyLength === bodyLength) {
+    return cached.headers
+  }
+  const headers = entry.stickyTemplates.map(item => ({
+    start: offset + item.start,
+    end: item.end === undefined ? bodyLength : offset + item.end,
+    text: item.text,
+  }))
+  entry.stickyCache = { offset, bodyLength, headers }
+  return headers
 }
 
 function commandSurfaceName(block: Block | undefined): string | undefined {
@@ -2166,11 +2336,15 @@ function nextRangeStart(ranges: readonly { start: number; end: number }[], index
 }
 
 /** Paint a wrapped composer slice: leading `/name` plus image markers. */
-function paintComposerInputSlice(fullText: string, slice: string, sourceStart: number, theme: Theme): string {
+function paintComposerInputSlice(
+  fullText: string,
+  slice: string,
+  sourceStart: number,
+  theme: Theme,
+  slashRanges: readonly { start: number; end: number }[],
+  images: readonly { start: number; end: number }[],
+): string {
   const sourceEnd = sourceStart + slice.length
-  const slash = leadingSlashCommandNameRange(fullText)
-  const slashRanges = slash === null ? [] : [slash]
-  const images = imageMarkerRanges(fullText)
   if (slashRanges.length === 0 && images.length === 0) return slice
 
   let output = ''
@@ -2607,7 +2781,7 @@ export function renderView(state: TranscriptState, options: ViewOptions): Frame 
   if (transcript.lines.length > 0) {
     if (body.length > 0) body.push('')
     transcriptStart = body.length
-    body.push(...transcript.lines)
+    appendAll(body, transcript.lines)
   }
 
   // The activity is drawn inside the composer frame rather than as its own row.
@@ -2666,7 +2840,6 @@ export function renderView(state: TranscriptState, options: ViewOptions): Frame 
     ...(reasoningEffort === undefined ? {} : { reasoningEffort }),
     ...(sessionTitle === undefined || sessionTitle === '' ? {} : { sessionTitle }),
     ...(controls === undefined ? {} : { controls }),
-    ...(viewed !== undefined || options.loopStatus === undefined ? {} : { loop: options.loopStatus }),
     ...(pwd === '' ? {} : { pwd }),
     ...(options.branch === undefined || options.branch === '' ? {} : { branch: options.branch }),
     ...(stats === undefined ? {} : { stats }),
@@ -2701,12 +2874,17 @@ export function renderView(state: TranscriptState, options: ViewOptions): Frame 
         || state.status === 'idle'
         ? 'border'
         : 'accent',
-    ...(theme.colors && (
-      leadingSlashCommandNameRange(options.input) !== null
-      || (options.inputImages !== undefined && options.inputImages !== 0)
-    )
-      ? { paintInput: (text: string, start: number) => paintComposerInputSlice(options.input, text, start, theme) }
-      : {}),
+    ...(() => {
+      if (!theme.colors) return {}
+      const slash = leadingSlashCommandNameRange(options.input)
+      const hasImages = options.inputImages !== undefined && options.inputImages !== 0
+      if (slash === null && !hasImages) return {}
+      const slashRanges = slash === null ? [] : [slash]
+      const images = hasImages ? imageMarkerRanges(options.input) : []
+      return {
+        paintInput: (text: string, start: number) => paintComposerInputSlice(options.input, text, start, theme, slashRanges, images),
+      }
+    })(),
     ...(inlineHint !== null ? { inlineHint } : {}),
     ...(editorNote === undefined ? {} : { note: truncateToWidth(editorNote, Math.max(0, width - 5)) }),
     ...(activityLabelText === undefined ? {} : {
@@ -2906,7 +3084,7 @@ export function renderView(state: TranscriptState, options: ViewOptions): Frame 
 
   let liveStart: number
   if (isFollowing) {
-    const firstPending = state.blocks.findIndex(isBlockPending)
+    const firstPending = blockMeta(state.blocks).firstPending
     const pendingRow = firstPending >= 0 ? transcript.blockStarts[firstPending]! : undefined
     const liveRow = transcript.liveFrom === undefined
       ? pendingRow
@@ -2932,7 +3110,7 @@ export function renderView(state: TranscriptState, options: ViewOptions): Frame 
   // Every settled block was already rendered against this width. Mirroring
   // OMP's stable-prefix preparation, only validate the mutable suffix instead
   // of measuring the complete native-scrollback history on every frame.
-  const trimmed = fitFrame(frameLines, width, isFollowing ? liveStart + topPad : 0)
+  const trimmed = fitFrame(frameLines, width, isFollowing ? liveStart : 0)
   const caret = promptSelector?.cursor ?? settings?.cursor ?? search?.cursor ?? editor?.cursor ?? { row: 0, column: 0 }
   // Which document rows this frame's body came from. `body` already includes the
   // header, so a window's own range is already in document coordinates and must
@@ -2947,37 +3125,9 @@ export function renderView(state: TranscriptState, options: ViewOptions): Frame 
   const bodySource: DocumentRows | null = windowRange === undefined
     ? null
     : windowRange
-  const stickyHeaders: { start: number; end: number; text: string }[] = []
-  if (!hasOverlay && budget >= 3) {
-    for (let at = 0; at < state.blocks.length; at += 1) {
-      const block = state.blocks[at]!
-      if (block.kind !== 'user') continue
-      const previous = stickyHeaders.at(-1)
-      if (previous !== undefined) previous.end = transcriptStart + topPad + transcript.blockStarts[at]!
-      const padding = width > 4 ? 2 : 0
-      const label = truncateToWidth(promptSummary(block), Math.max(1, width - padding * 2))
-      stickyHeaders.push({
-        start: transcriptStart + topPad + (transcript.blockStarts[at + 1] ?? transcript.lines.length),
-        end: body.length,
-        text: paintSurface(theme, 'userMessageBg', 'userMessageText', padToWidth(' '.repeat(padding) + label, width)),
-      })
-    }
-  }
-  // Tool context takes precedence in the existing single pinned row. Only
-  // painted detail spans participate; folded calls and following replies do not.
-  if (!hasOverlay && budget >= 3) for (const target of transcript.disclosures) {
-    if (target.detailEnd === undefined) continue
-    const block = state.blocks[target.block]
-    if (block?.kind !== 'tool') continue
-    const title = transcript.lines[target.row]!
-    const titleStart = block.parentCallId === undefined ? 4 : 6
-    const label = sliceCells(title, titleStart, (target.actionColumn ?? width) - titleStart).trimEnd()
-    stickyHeaders.push({
-      start: transcriptStart + topPad + target.row + 1,
-      end: transcriptStart + topPad + target.detailEnd,
-      text: paintSurface(theme, 'toolAltBg', 'toolOutput', padToWidth(truncateToWidth('  ' + label, width), width)),
-    })
-  }
+  const stickyHeaders = !hasOverlay && budget >= 3
+    ? transcript.resolveStickyHeaders(transcriptStart + topPad, body.length)
+    : []
   const selectionActions: NonNullable<Frame['selectionActions']>[number][] = []
   if (!hasOverlay && editor !== undefined) {
     const row = editorStart + inputLines.length - 1 + topPad

@@ -7673,3 +7673,109 @@ it('uses the durable shared message as delivery confirmation, never the Shell in
     expect(term.captured).not.toContain('shared to conversation')
   } finally { tui.dispose() }
 })
+
+it('ignores late updates after dispose without re-enabling mouse tracking or writing output', async () => {
+  const term = new FakeTerminal(), tui = new LocalTui(term, 'm', false)
+  await tui.dispose()
+  const afterDispose = term.captured.length
+  tui.setStatus('running')
+  tui.notice('late notice')
+  tui.setModelReady(false)
+  await new Promise(resolve => setTimeout(resolve, 120))
+  expect(term.captured.length).toBe(afterDispose)
+  expect(term.captured.slice(afterDispose)).not.toContain('\x1b[?1000h')
+})
+
+it('prevents a superseded asideQuestion from painting into the newer pane', async () => {
+  const term = new FakeTerminal(), tui = new LocalTui(term, 'm', false)
+  try {
+    let finishFirst!: (value: { text: string }) => void
+    let streamFirst!: (text: string) => void
+    const first = tui.asideQuestion({
+      question: 'first question',
+      signal: new AbortController().signal,
+      run: (onUpdate) => new Promise(resolve => {
+        streamFirst = onUpdate
+        finishFirst = resolve
+      }),
+    })
+    const second = tui.asideQuestion({
+      question: 'second question',
+      signal: new AbortController().signal,
+      run: async () => ({ text: 'second answer' }),
+    })
+    await second
+    streamFirst('stale stream')
+    finishFirst({ text: 'stale answer' })
+    await first
+    const visible = emulatedScreenRows(term.captured).map(stripAnsi).join('\n')
+    expect(visible).toContain('second answer')
+    expect(visible).not.toContain('stale answer')
+    expect(visible).not.toContain('stale stream')
+  } finally { tui.dispose() }
+})
+
+it('flushes throttled shellCommand output on error so buffered chunks are not dropped', async () => {
+  const term = new FakeTerminal(), tui = new LocalTui(term, 'm', false)
+  try {
+    await expect(tui.shellCommand({
+      command: 'echo burst',
+      signal: new AbortController().signal,
+      abort: () => {},
+      run: async (onOutput) => {
+        onOutput('first chunk')
+        onOutput('first chunk\nsecond chunk')
+        throw new Error('boom')
+      },
+    })).rejects.toThrow('boom')
+    expect(emulatedScreenRows(term.captured).map(stripAnsi).join('\n')).toContain('second chunk')
+  } finally { tui.dispose() }
+})
+
+it('closes the aside pane cleanly when aborted by an external signal', async () => {
+  const term = new FakeTerminal(), tui = new LocalTui(term, 'm', false)
+  const controller = new AbortController()
+  try {
+    const task = tui.asideQuestion({
+      question: 'external cancel test',
+      signal: controller.signal,
+      run: async (_onUpdate, signal) => {
+        await new Promise<void>(resolve => { signal.addEventListener('abort', () => resolve(), { once: true }) })
+        return { text: '' }
+      },
+    })
+    controller.abort()
+    await task
+    const visible = emulatedScreenRows(term.captured).map(stripAnsi).join('\n')
+    expect(visible).not.toContain('external cancel test')
+  } finally { tui.dispose() }
+})
+
+it('awaits all overlapping settings saves on dispose even when the first finishes before the second', async () => {
+  const term = new FakeTerminal(), tui = new LocalTui(term, 'm', false)
+  let resolveFirst!: () => void
+  let resolveSecond!: () => void
+  let secondSettled = false
+  let calls = 0
+  tui.setPrefsPersist(() => {
+    calls += 1
+    if (calls === 1) return new Promise<void>(resolve => { resolveFirst = resolve })
+    return new Promise<void>(resolve => {
+      resolveSecond = () => { secondSettled = true; resolve() }
+    })
+  })
+  press(term, '\x14')
+  press(term, '\x14')
+  expect(calls).toBe(2)
+  resolveFirst()
+  await Promise.resolve()
+  await Promise.resolve()
+  let disposed = false
+  const disposing = Promise.resolve(tui.dispose()).then(() => { disposed = true })
+  await new Promise(resolve => setTimeout(resolve, 20))
+  expect(disposed).toBe(false)
+  resolveSecond()
+  await disposing
+  expect(secondSettled).toBe(true)
+  expect(disposed).toBe(true)
+})

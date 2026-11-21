@@ -557,6 +557,8 @@ export class SessionRuntime {
   #refreshInFlight: Promise<void> | null = null
   #refreshDirty = false
   #inspectEpoch = 0
+  #skillsEpoch = 0
+  #selectionEpoch = 0
   #inspectDeliveryTail: Promise<void> = Promise.resolve()
   #activeInteraction = new AbortController()
   readonly #pendingSends = new Map<Agent, number>()
@@ -694,6 +696,7 @@ export class SessionRuntime {
     this.#off.push(ctx.on('subagent/end', info => { this.#tracker.noteExternalRun(info) }))
     this.#off.push(ctx.on('subagent/external-activity', info => { this.#tracker.noteExternalActivity(info.id, info.activity) }))
     this.#off.push(ctx.on('session/disposed', (session) => {
+      this.#streamAttempts.clearSession(String(session.id))
       this.#tracker.noteGone(session)
     }))
     this.#off.push(ctx.on('session/event', (session, event) => {
@@ -740,7 +743,7 @@ export class SessionRuntime {
         if (event.type === 'workspace/changes') this.#serveWorkspaceSummary(ctx, tui, session, event)
         if (event.type === 'subagent/catalog') this.#tracker.observeCatalog(session, [event])
         if (shouldRefreshSessionInfoAfter(event)) this.#pushSessionInfo()
-        if (event.type === 'session/title') void this.refreshRecent()
+        if (event.type === 'session/title') void this.refreshRecent().catch(error => { ctx.logger.warn(error) })
         return
       }
       this.#tracker.noteEvent(session, event)
@@ -771,7 +774,7 @@ export class SessionRuntime {
       this.#off.push(ctx.on('commands/change', () => { this.#pushCommands() }))
     }
     if (ctx.get('skills') !== undefined) {
-      this.#off.push(ctx.on('skills/change', () => { void this.#refreshSkills() }))
+      this.#off.push(ctx.on('skills/change', () => { void this.#refreshSkills().catch(error => { ctx.logger.warn(error) }) }))
     }
     if (ctx.get('tools') !== undefined) {
       this.#off.push(ctx.on('tools/change', () => {
@@ -1136,7 +1139,9 @@ export class SessionRuntime {
   ): Promise<void> {
     this.assertActive(agent)
     const active = this.#requiredActive()
+    const request = ++this.#selectionEpoch
     const resolved = info ?? await this.#resolveModelInfo(selection)
+    if (this.#disposed || request !== this.#selectionEpoch) return
     this.assertActive(agent)
     const current = agent.model.current()
     if (current?.provider !== selection.provider || current.model !== selection.model || current.reasoningEffort !== selection.reasoningEffort) {
@@ -1489,9 +1494,12 @@ export class SessionRuntime {
     const { id } = session
     const { seq, data } = event
     queueMicrotask(() => {
+      if (this.#disposed) return
       const summary = service.summary(id, seq)
       if (summary === undefined) return
-      tui.setWorkspaceSummary(data.turn, summary)
+      if (session === this.#active?.handle.agent.session && this.#inspectedId === undefined) {
+        tui.setWorkspaceSummary(data.turn, summary)
+      }
       const recorded = session.snapshotEvents().some(candidate => {
         const record = pluginRecordOf(candidate)
         return record?.type === 'plugin:omdsh/workspace-changes'
@@ -1584,6 +1592,7 @@ export class SessionRuntime {
     }
     const snapshots = (await persistence.list()).filter(snapshot => snapshot.header.origin !== 'subagent')
       .sort((left, right) => right.header.createdAt - left.header.createdAt)
+    if (this.#disposed) return
     const agent = this.agent
     const cwd = agent === undefined ? process.cwd() : currentWorkingDirectory(this.#ctx, agent.session)
     // A stored row stays valid while its revision holds, so a cold process
@@ -1619,6 +1628,7 @@ export class SessionRuntime {
       }
       try {
         const log = await readColdSessionLog(persistence, header.id)
+        if (this.#disposed) return
         const status = recentSessionStatus(log.events)
         const content = recentSessionContent(log.events)
         if (content === undefined) {
@@ -1641,6 +1651,7 @@ export class SessionRuntime {
         rows.push({ id: header.id, title: '(unavailable session)', createdAt: header.createdAt })
       }
     }
+    if (this.#disposed) return
     if (memoChanged && this.#recentRowsPath !== undefined) writeRecentRows(this.#recentRowsPath, this.#recentCache)
     this.#recent = rows
     this.#pushSessionInfo()
@@ -1654,6 +1665,10 @@ export class SessionRuntime {
     this.#disposed = true
     this.#activeInteraction.abort()
     this.#activationEpoch += 1
+    this.#inspectEpoch += 1
+    this.#skillsEpoch += 1
+    this.#selectionEpoch += 1
+    this.#streamAttempts.clear()
     this.#cancelInspectDeliveries()
     this.#inspectedId = undefined
     this.#tracker.reset()
@@ -1796,6 +1811,7 @@ export class SessionRuntime {
     for (const [abort, root] of this.#descendantApprovals) if (root !== active.handle.agent) abort.abort()
     this.#workflows.reset(active.handle.agent.session.snapshotEvents())
     const agent = active.handle.agent
+    this.#inspectEpoch += 1
     this.#cancelInspectDeliveries()
     this.#inspectedId = undefined
     this.#inspectedEvents = []
@@ -1859,6 +1875,7 @@ export class SessionRuntime {
   }
 
   async #refreshSkills(signal?: AbortSignal): Promise<void> {
+    const request = ++this.#skillsEpoch
     const agent = this.agent
     const skills = this.#ctx.get('skills')
     if (agent === undefined || skills === undefined) {
@@ -1866,10 +1883,10 @@ export class SessionRuntime {
     } else {
       const cwd = currentWorkingDirectory(this.#ctx, agent.session)
       const list = await skills.list({ cwd, scope: agent, signal })
-      if (this.#disposed || this.agent !== agent || currentWorkingDirectory(this.#ctx, agent.session) !== cwd) return
+      if (this.#disposed || request !== this.#skillsEpoch || this.agent !== agent || currentWorkingDirectory(this.#ctx, agent.session) !== cwd) return
       this.#skills = list
     }
-    this.#pushCommands()
+    if (!this.#disposed && request === this.#skillsEpoch) this.#pushCommands()
   }
 
   async #findUserSkill(name: string, signal: AbortSignal): Promise<SkillSummary | undefined> {
@@ -2025,13 +2042,13 @@ export class SessionRuntime {
         cwd = change?.type === 'working-directory/change' ? change.data.cwd : log.header.cwd
         cwd ??= this.#active === undefined ? process.cwd() : currentWorkingDirectory(this.#ctx, this.#active.handle.agent.session)
       } catch {
-        if (request === this.#inspectEpoch) {
+        if (!this.#disposed && request === this.#inspectEpoch) {
           this.#tui.notice('Unable to open that subagent transcript.', { level: 'error' })
         }
         return
       }
     }
-    if (request !== this.#inspectEpoch) return
+    if (this.#disposed || request !== this.#inspectEpoch) return
     if (this.#inspectedId !== id) {
       this.#queueAbort?.abort(new Error('viewed session changed'))
       this.#workflowAbort?.abort()

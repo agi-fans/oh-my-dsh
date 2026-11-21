@@ -8,7 +8,7 @@
  * @module @agi-fans/dsh-tui/status-line
  */
 
-import type { TuiLoopStatus, TuiSessionControls, TuiSessionStats } from '../definition.ts'
+import type { TuiSessionControls, TuiSessionStats } from '../definition.ts'
 import { formatAgentPreset } from '../session/session-configuration.ts'
 import {
   isResolvedStatusBarConfig,
@@ -53,7 +53,6 @@ export interface StatusFooterOptions {
   /** Folded session title, shown only when the `session` meta item is enabled. */
   sessionTitle?: string
   controls?: TuiSessionControls
-  loop?: TuiLoopStatus
   pwd?: string
   branch?: string
   stats?: TuiSessionStats
@@ -283,27 +282,6 @@ function sessionConfigurationStatus(controls: TuiSessionControls | undefined): {
   }
 }
 
-function loopStatus(loop: TuiLoopStatus | undefined): { text: string; tone: ThemeColor } | undefined {
-  if (loop === undefined) return undefined
-  const repeatProgress = loop.total === undefined ? undefined : `${loop.repeats ?? 0}/${loop.total} REPEATS`
-  if (loop.phase === 'completed') {
-    const completed = loop.repeats === undefined ? '' : ` · ${loop.repeats} ${loop.repeats === 1 ? 'REPEAT' : 'REPEATS'}`
-    return { text: `LOOP DONE${completed}`, tone: 'success' }
-  }
-  if (loop.phase === 'paused') return { text: 'LOOP PAUSED · SEND TO RESUME', tone: 'warning' }
-  if (loop.phase === 'waiting') {
-    const budget = repeatProgress ?? loop.limit
-    return { text: `LOOP WAITING · SEND PROMPT${budget === undefined ? '' : ` · ${budget}`}`, tone: 'accent' }
-  }
-  if (repeatProgress !== undefined) return { text: `LOOP · ${repeatProgress}`, tone: 'accent' }
-  if (loop.deadline !== undefined) {
-    const remainingMs = Math.max(0, loop.deadline - Date.now())
-    return { text: `LOOP · ${formatDuration(Math.max(1_000, remainingMs))} LEFT`, tone: 'accent' }
-  }
-  if (loop.limit !== undefined) return { text: `LOOP · ${loop.limit}`, tone: 'accent' }
-  return { text: 'LOOP', tone: 'accent' }
-}
-
 function gitTone(branch: string): ThemeColor {
   // A dirty worktree is the one thing on the first line that needs attention, so
   // it keeps `warning` whatever else has been reconfigured.
@@ -395,9 +373,8 @@ function metadataColumns(
   focus?: StatusItemId,
 ): { left: string; right: string } {
   const separator = ' · '
-  const statuses = [sessionConfigurationStatus(options.controls), loopStatus(options.loop)].filter(
-    (status): status is { text: string; tone: ThemeColor } => status !== undefined,
-  )
+  const configStatus = sessionConfigurationStatus(options.controls)
+  const statuses = configStatus === undefined ? [] : [configStatus]
   const columns = splitMetaParts(options, config)
   const statusWidth = statuses.reduce((total, status) => total + visibleWidth(status.text), 0)
     + Math.max(0, statuses.length - 1) * visibleWidth(separator)

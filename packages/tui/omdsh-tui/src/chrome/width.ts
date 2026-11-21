@@ -50,13 +50,27 @@ function isWideEmojiSymbol(cp: number): boolean {
   )
 }
 
+const COMBINING_MARK_RE = /^[\p{Mn}\p{Me}]$/u
+
 /** East-Asian / emoji / combining-mark cell width of one code point. */
 export function charWidth(cp: number): number {
   if (cp === 0) return 0
-  if (cp < 0x20 || (cp >= 0x7f && cp < 0xa0)) return 0
+  if (cp < 0x20 || (cp >= 0x7f && cp < 0xa0) || cp === 0xad) return 0
   if (cp >= 0x300 && cp <= 0x36f) return 0
-  if (cp >= 0xfe00 && cp <= 0xfe0f) return 0
-  if (cp === 0x200d || cp === 0xfe0f) return 0
+  if (cp >= 0x1160 && cp <= 0x11ff) return 0
+  if (
+    (cp >= 0x1ab0 && cp <= 0x1aff)
+    || (cp >= 0x1dc0 && cp <= 0x1dff)
+    || (cp >= 0x20d0 && cp <= 0x20ff)
+    || (cp >= 0x302a && cp <= 0x302d)
+    || cp === 0x3099 || cp === 0x309a
+    || (cp >= 0xfe00 && cp <= 0xfe0f)
+    || (cp >= 0xfe20 && cp <= 0xfe2f)
+    || cp === 0x200b || cp === 0x200c || cp === 0x200d || cp === 0x200e || cp === 0x200f
+    || (cp >= 0x202a && cp <= 0x202e)
+    || (cp >= 0x2060 && cp <= 0x206f)
+    || cp === 0xfeff
+  ) return 0
   // Skin-tone modifiers fold into the preceding base glyph and never advance
   // the cursor, so they must be measured as zero rather than as emoji.
   if (cp >= 0x1f3fb && cp <= 0x1f3ff) return 0
@@ -81,7 +95,10 @@ export function charWidth(cp: number): number {
     || (cp >= 0x1f7e0 && cp <= 0x1f7eb)
     || (cp >= 0x1f900 && cp <= 0x1f9ff)
     || (cp >= 0x1fa00 && cp <= 0x1faff)
+    || (cp >= 0x20000 && cp <= 0x2fffd)
+    || (cp >= 0x30000 && cp <= 0x3fffd)
   ) return 2
+  if (cp >= 0x483 && COMBINING_MARK_RE.test(String.fromCodePoint(cp))) return 0
   return 1
 }
 
@@ -94,7 +111,7 @@ let clusterSegmenter: Intl.Segmenter | undefined
  * and combining marks, which `charWidth` already reports as zero — keeps the
  * per-code-point fast path.
  */
-const CLUSTER_RE = /[\u200D\uFE0F\u{1F1E6}-\u{1F1FF}]/u
+const CLUSTER_RE = /[\u200D\uFE0E\uFE0F\u{1F1E6}-\u{1F1FF}]/u
 
 const REGIONAL_PAIR_RE = /^\p{Regional_Indicator}{2}$/u
 
@@ -116,6 +133,10 @@ function segments(text: string): Intl.Segments {
 export function graphemeWidth(cluster: string): number {
   if (cluster === '') return 0
   if (cluster.length === 1) return charWidth(cluster.codePointAt(0) ?? 0)
+  if (cluster.includes('\uFE0E') && !cluster.includes('\u200D')) {
+    const base = cluster.codePointAt(0) ?? 0
+    if (isWideEmojiSymbol(base) || (base >= 0x1f300 && base <= 0x1faff)) return 1
+  }
   if (cluster.includes('\u200D') || cluster.includes('\uFE0F')) return 2
   if (REGIONAL_PAIR_RE.test(cluster)) return 2
   let width = 0
@@ -153,7 +174,17 @@ function clusterSpans(text: string): { index: number; cluster: string }[] {
 
 /** Visible column count, ignoring ANSI and counting wide glyphs as two cells. */
 export function visibleWidth(text: string): number {
-  const plain = stripAnsi(text)
+  if (text.length === 0) return 0
+  // Printable-ASCII fast path: skip ANSI stripping, regex tests, and UTF-16 iteration.
+  if (!text.includes('\x1b')) {
+    let ascii = true
+    for (let i = 0; i < text.length; i += 1) {
+      const code = text.charCodeAt(i)
+      if (code < 0x20 || code >= 0x7f) { ascii = false; break }
+    }
+    if (ascii) return text.length
+  }
+  const plain = text.includes('\x1b') ? stripAnsi(text) : text
   if (!CLUSTER_RE.test(plain)) {
     let width = 0
     for (const ch of plain) width += charWidth(ch.codePointAt(0) ?? 0)
@@ -266,7 +297,9 @@ export function sliceCells(text: string, start: number, width: number): string {
       // Never replay cursor controls from a clipped row.
       if (!/^\x1b\[[0-9;]*m$/u.test(part.value) && !part.value.startsWith('\x1b]8;')) continue
       styled ||= part.value.endsWith('m')
-      linked ||= part.value.startsWith('\x1b]8;')
+      if (part.value.startsWith('\x1b]8;')) {
+        linked = !/^\x1b\]8;[^;]*;(?:\x07|\x1b\\)$/u.test(part.value)
+      }
       if (started) out += part.value
       else prefix += part.value
       continue
@@ -369,7 +402,7 @@ export function wrapText(text: string, width: number): string[] {
       } else {
         if (line !== '') out.push(line)
         const chunks = hardWrapAnsi(word, width)
-        out.push(...chunks.slice(0, -1))
+        for (let k = 0; k < chunks.length - 1; k += 1) out.push(chunks[k]!)
         line = chunks[chunks.length - 1] ?? ''
         lineW = visibleWidth(line)
       }
@@ -383,8 +416,11 @@ export function wrapText(text: string, width: number): string[] {
 interface SgrState {
   /** Last opened foreground escape (e.g. `\x1b[31m`, `\x1b[38;2;...m`) or '' when reset to default. */
   fg: string
+  /** Last opened background escape (e.g. `\x1b[41m`, `\x1b[48;5;...m`) or '' when reset to default. */
+  bg: string
   inverse: boolean
   bold: boolean
+  dim: boolean
   italic: boolean
   underline: boolean
   strike: boolean
@@ -394,7 +430,7 @@ interface SgrState {
 const WRAP_STYLE_RE = /\x1b\[([0-9;]*)m|\x1b\]8;[^;]*;([^\x07\x1b]*)(?:\x07|\x1b\\)/g
 
 function emptySgr(): SgrState {
-  return { fg: '', inverse: false, bold: false, italic: false, underline: false, strike: false, link: '' }
+  return { fg: '', bg: '', inverse: false, bold: false, dim: false, italic: false, underline: false, strike: false, link: '' }
 }
 
 /** Apply one SGR escape to `state`, returning the new state. */
@@ -405,10 +441,12 @@ function applySgr(state: SgrState, params: string): SgrState {
     const code = codes[i] ?? 0
     if (code === 0) state = { ...emptySgr(), link: state.link }
     else if (code === 39) state = { ...state, fg: '' }
+    else if (code === 49) state = { ...state, bg: '' }
     else if (code === 7) state = { ...state, inverse: true }
     else if (code === 27) state = { ...state, inverse: false }
     else if (code === 1) state = { ...state, bold: true }
-    else if (code === 22) state = { ...state, bold: false }
+    else if (code === 2) state = { ...state, dim: true }
+    else if (code === 22) state = { ...state, bold: false, dim: false }
     else if (code === 3) state = { ...state, italic: true }
     else if (code === 23) state = { ...state, italic: false }
     else if (code === 4) state = { ...state, underline: true }
@@ -416,11 +454,33 @@ function applySgr(state: SgrState, params: string): SgrState {
     else if (code === 9) state = { ...state, strike: true }
     else if (code === 29) state = { ...state, strike: false }
     else if (code === 38) {
-      // 38;...m foreground sequence (256-color or truecolor): consume the rest.
-      state = { ...state, fg: `\x1b[${params}m` }
-      break
+      // 38;5;n (256-color) or 38;2;r;g;b (truecolor): consume only this foreground
+      // subsequence so preceding/trailing SGR codes in the same sequence are preserved.
+      const mode = codes[i + 1]
+      if (mode === 5 && i + 2 < codes.length) {
+        state = { ...state, fg: `\x1b[38;5;${codes[i + 2]}m` }
+        i += 2
+      } else if (mode === 2 && i + 4 < codes.length) {
+        state = { ...state, fg: `\x1b[38;2;${codes[i + 2]};${codes[i + 3]};${codes[i + 4]}m` }
+        i += 4
+      } else {
+        break
+      }
+    } else if (code === 48) {
+      const mode = codes[i + 1]
+      if (mode === 5 && i + 2 < codes.length) {
+        state = { ...state, bg: `\x1b[48;5;${codes[i + 2]}m` }
+        i += 2
+      } else if (mode === 2 && i + 4 < codes.length) {
+        state = { ...state, bg: `\x1b[48;2;${codes[i + 2]};${codes[i + 3]};${codes[i + 4]}m` }
+        i += 4
+      } else {
+        break
+      }
     } else if ((code >= 30 && code <= 37) || (code >= 90 && code <= 97)) {
       state = { ...state, fg: `\x1b[${code}m` }
+    } else if ((code >= 40 && code <= 47) || (code >= 100 && code <= 107)) {
+      state = { ...state, bg: `\x1b[${code}m` }
     }
   }
   return state
@@ -428,8 +488,9 @@ function applySgr(state: SgrState, params: string): SgrState {
 
 /** Build the reopen sequence that restores `state` at a continuation start. */
 function reopenSgr(state: SgrState): string {
-  let out = state.link + state.fg
+  let out = state.link + state.fg + state.bg
   if (state.bold) out += '\x1b[1m'
+  if (state.dim) out += '\x1b[2m'
   if (state.italic) out += '\x1b[3m'
   if (state.underline) out += '\x1b[4m'
   if (state.strike) out += '\x1b[9m'
@@ -512,45 +573,54 @@ export function wrapIndexed(text: string, width: number, tabWidth = 0): IndexedL
   const lines: IndexedLine[] = []
   const spans = clusterSpans(text)
   let start = 0
+  let startSpan = 0
   let used = 0
   let breakAt = -1
+  let breakSpan = -1
   const flush = (end: number): void => {
     const row = text.slice(start, end)
     lines.push({ text: row, start, end, ...(tabWidth > 0 && row.includes('\t') ? { tabWidth } : {}) })
   }
-  for (const span of spans) {
+  for (let idx = 0; idx < spans.length; idx += 1) {
+    const span = spans[idx]!
     const i = span.index
     const cluster = span.cluster
     if (cluster === '\n') {
       flush(i)
       start = i + 1
+      startSpan = idx + 1
       used = 0
       breakAt = -1
+      breakSpan = -1
       continue
     }
     let cw = indexedClusterWidth(cluster, used, tabWidth)
     if (used + cw > width && i > start) {
-      const cut = breakAt >= start ? breakAt : i
+      const hasBreak = breakAt >= start
+      const cut = hasBreak ? breakAt : i
       flush(cut)
-      start = breakAt >= start ? breakAt + 1 : i
+      start = hasBreak ? breakAt + 1 : i
+      startSpan = hasBreak ? breakSpan + 1 : idx
       used = 0
       breakAt = -1
-      for (const inner of spans) {
-        if (inner.index < start) continue
-        if (inner.index >= i) break
-        if (inner.cluster === ' ') breakAt = inner.index
+      breakSpan = -1
+      for (let k = startSpan; k < idx; k += 1) {
+        const inner = spans[k]!
+        if (inner.cluster === ' ') { breakAt = inner.index; breakSpan = k }
         used += indexedClusterWidth(inner.cluster, used, tabWidth)
       }
       cw = indexedClusterWidth(cluster, used, tabWidth)
       if (used + cw > width && i > start) {
         flush(i)
         start = i
+        startSpan = idx
         used = 0
         breakAt = -1
+        breakSpan = -1
         cw = indexedClusterWidth(cluster, used, tabWidth)
       }
     }
-    if (cluster === ' ') breakAt = i
+    if (cluster === ' ') { breakAt = i; breakSpan = idx }
     used += cw
   }
   flush(text.length)

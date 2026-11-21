@@ -220,3 +220,49 @@ it('maps visual tab stops back to the original buffer indices', () => {
   expect(indexOnWrapped(rows[0]!, 5, input)).toBe(1)
   expect(indexOnWrapped(rows[0]!, 9, input)).toBe(2)
 })
+
+it('measures supplementary CJK, non-Latin combining marks, ZWSP, and text-presentation emoji accurately', () => {
+  expect(visibleWidth('𠀀')).toBe(2)
+  expect(visibleWidth('א\u05b8')).toBe(1)
+  expect(visibleWidth('a\u200bb')).toBe(2)
+  expect(visibleWidth('☀\uFE0E')).toBe(1)
+  expect(visibleWidth('漢\uFE0E')).toBe(2)
+  expect(visibleWidth('\u0301\uFE0E')).toBe(0)
+  expect(visibleWidth('か\u3099')).toBe(2)
+})
+
+it('preserves trailing attributes in compound SGR without leaking reset inverse across wraps', () => {
+  const rows = wrapTextStable('\x1b[7minv\x1b[0;38;2;255;0;0;4m aaaa bbbb cccc dddd\x1b[0m', 10)
+  expect(rows.length).toBeGreaterThan(1)
+  expect(rows[1]).toContain('\x1b[38;2;255;0;0m')
+  expect(rows[1]).toContain('\x1b[4m')
+  expect(rows[1]).not.toContain('\x1b[7m')
+  expect(rows[1]).not.toContain('\x1b[0;38;2;')
+
+  const bgRows = wrapTextStable('\x1b[38;2;12;13;14;48;5;35malpha beta gamma\x1b[0m', 8)
+  expect(bgRows[1]).toContain('\x1b[38;2;12;13;14m')
+  expect(bgRows[1]).toContain('\x1b[48;5;35m')
+
+  const dimRows = wrapTextStable('\x1b[38;5;196;2malpha beta gamma\x1b[0m', 8)
+  expect(dimRows[1]).toContain('\x1b[38;5;196m')
+  expect(dimRows[1]).toContain('\x1b[2m')
+})
+
+it('does not emit a duplicate OSC 8 close when slicing past a closed hyperlink', () => {
+  const line = '\x1b]8;;https://example.test\x07link\x1b]8;;\x07 tail'
+  const sliced = sliceCells(line, 0, 9)
+  expect(stripAnsi(sliced)).toBe('link tail')
+  expect(sliced.match(/\x1b\]8;;\x07/g)).toHaveLength(1)
+})
+
+it('wraps large drafts in wrapIndexed without quadratic slowdown', () => {
+  const text = 'word '.repeat(8_000)
+  const rows = wrapIndexed(text, 80)
+  expect(rows.length).toBeGreaterThan(400)
+  expect(rows.at(-1)?.end).toBe(text.length)
+})
+
+it('wraps a massive unbroken word without overflowing the call stack', () => {
+  const rows = wrapText('a'.repeat(1_200_000), 8)
+  expect(rows).toHaveLength(150_000)
+})

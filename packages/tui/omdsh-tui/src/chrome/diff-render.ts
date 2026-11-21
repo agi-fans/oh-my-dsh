@@ -134,7 +134,8 @@ function applyIntraLine(rows: readonly DiffRow[]): DiffRow[] {
       const pair = highlightPair(rowText(deleted[0]!), rowText(added[0]!))
       out.push(pair.removed, pair.added)
     } else {
-      out.push(...deleted, ...added)
+      for (const item of deleted) out.push(item)
+      for (const item of added) out.push(item)
     }
   }
   return out
@@ -148,14 +149,17 @@ function alignHunk(oldText: string | null, newText: string, language: string | u
     ? undefined
     : diffArrays(oldLines, newLines, { maxEditLength: MAX_LINE_EDITS })
   if (changes === undefined) {
-    return [
-      ...oldLines.map(line => plainRow('del', line)),
-      ...newLines.map(line => plainRow('add', line)),
-    ]
+    const fallback: DiffRow[] = []
+    for (const line of oldLines) fallback.push(plainRow('del', line))
+    for (const line of newLines) fallback.push(plainRow('add', line))
+    return fallback
   }
-  const aligned = changes.flatMap(part => part.value.map(text =>
-    part.removed ? plainRow('del', text) : part.added ? plainRow('add', text) : ctxRow(text, language),
-  ))
+  const aligned: DiffRow[] = []
+  for (const part of changes) {
+    for (const text of part.value) {
+      aligned.push(part.removed ? plainRow('del', text) : part.added ? plainRow('add', text) : ctxRow(text, language))
+    }
+  }
   return applyIntraLine(aligned)
 }
 
@@ -168,7 +172,7 @@ export function alignFileDiffs(diffs: readonly FileDiff[]): DiffRow[] {
     else rows.push(plainRow('gap', '⋯'))
     previousPath = diff.path
     const language = languageFromPath(diff.path)
-    rows.push(...alignHunk(diff.oldText, diff.newText, language))
+    for (const row of alignHunk(diff.oldText, diff.newText, language)) rows.push(row)
   }
   return rows
 }

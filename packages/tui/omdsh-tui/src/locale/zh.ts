@@ -1053,14 +1053,6 @@ export const zh = {
   "plan off…": "正在退出计划模式…",
   "plan…": "正在进入计划模式…",
   "plan": "计划",
-  "LOOP": "循环",
-  "LOOP DONE": "循环已完成",
-  "LOOP PAUSED · SEND TO RESUME": "循环已暂停 · 发送消息以继续",
-  "LOOP WAITING · SEND PROMPT": "循环等待中 · 请输入提示",
-  "{count}/{total} REPEATS": "已重复 {count}/{total} 次",
-  "{count} REPEAT": "已重复 {count} 次",
-  "{count} REPEATS": "已重复 {count} 次",
-  "LOOP · {duration} LEFT": "循环 · 剩余 {duration}",
   "Where should this exact invocation be allowed?": "在哪个范围内允许此调用？",
   "Where should this exact invocation be rejected?": "在哪个范围内拒绝此调用？",
   "Matches the complete arguments, directory, Access and approval reason. Other sandbox and tool protections still apply.": "规则匹配完整参数、目录、权限级别和审批原因。其他沙箱与工具保护仍然有效。",
@@ -1337,5 +1329,9 @@ export const zh = {
   "Enable experimental model-reviewed access without a sandbox?": "启用无沙箱的实验性模型自动审查权限？",
   "Before every native tool call and PTC inner call, the current model reviews whether to allow it; denied calls ask you. Auto review can falsely allow or deny actions and uses extra tokens.": "每次原生工具调用和 PTC 内层调用前，当前模型会审查是否放行；审查拒绝的调用由你决定批准或拒绝。自动审查可能误放行或误拒绝，并会消耗额外 token。",
   "Enable auto review": "启用自动审查",
-  "Disable sandbox and review every tool call with the current model.": "关闭沙箱，并由当前模型审查每次工具调用。"
+  "Disable sandbox and review every tool call with the current model.": "关闭沙箱，并由当前模型审查每次工具调用。",
+  "Expand": "展开",
+  "search": "搜索",
+  "The plugin market is not mounted in this profile.": "当前配置未挂载插件市场。",
+  "No plugin index sources are configured. Add one in Settings to browse a market.": "尚未配置插件索引源。请在设置中添加索引源后再浏览市场。"
 } as const

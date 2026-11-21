@@ -138,7 +138,12 @@ function prepare(source: string): string {
 const MAX_MARKDOWN_NESTING = 24
 const MAX_EMPHASIS_RUN = 3
 
+const CLAMP_NEEDED_RE = /^[ \t]*(?:>\s*){25}|^ {49}|([*_])\1{3,}/mu
+
 function clampNesting(source: string): string {
+  // Fast path: skip fence/code/math masking and double regex passes when no line
+  // can exceed the nesting or emphasis caps.
+  if (!CLAMP_NEEDED_RE.test(source)) return source
   // Mask fences before code spans: a backtick string inside a fence is not its
   // closing delimiter. Preserve multiline code spans before clamping prose.
   let marker = '\u0000code'
@@ -449,7 +454,7 @@ function renderTable(token: Tokens.Table, theme: Theme, width: number, style?: M
   const paintedRows = rows.map(row => paintRow(row.map((cell, i) => wrapCell(cell, i)), false))
   for (let rowIndex = 0; rowIndex < paintedRows.length; rowIndex += 1) {
     const row = paintedRows[rowIndex]!
-    lines.push(...row)
+    appendStrings(lines, row)
     if (rowIndex < paintedRows.length - 1 && (row.length > 1 || paintedRows[rowIndex + 1]!.length > 1)) {
       lines.push(join(BOX.teeRight, fills, BOX.cross, BOX.teeLeft))
     }
@@ -513,7 +518,7 @@ function renderList(token: Tokens.List, theme: Theme, width: number, level: numb
         ? theme.fg(bullet, `${number}. `)
         : theme.fg(bullet, '• ')
     number += 1
-    lines.push(...renderListItem(item, marker, theme, width, level, style, depth))
+    appendStrings(lines, renderListItem(item, marker, theme, width, level, style, depth))
   }
   return lines
 }
@@ -539,7 +544,7 @@ function renderListItem(
       continue
     }
     if (child.type === 'list') {
-      lines.push(...renderList(child as Tokens.List, theme, width, level + 1, style, depth + 1))
+      appendStrings(lines, renderList(child as Tokens.List, theme, width, level + 1, style, depth + 1))
       first = false
       continue
     }
@@ -624,12 +629,12 @@ function renderTokens(
   for (const token of tokens) {
     if (depth > MAX_MARKDOWN_DEPTH) {
       const text = flattenText(tokenText(token))
-      if (text !== '') lines.push(...wrapStyled(paintBase(theme, text, style), width))
+      if (text !== '') appendStrings(lines, wrapStyled(paintBase(theme, text, style), width))
       continue
     }
     const chunk = renderBlock(token, theme, width, listLevel, style, depth)
     if (chunk.length === 0) continue
-    lines.push(...withStyledLines(theme, style, chunk))
+    appendStrings(lines, withStyledLines(theme, style, chunk))
   }
   return lines
 }
@@ -642,27 +647,57 @@ const MAX_BLOCK_LAYOUTS = 4096
 const MAX_BLOCK_LAYOUT_CHARS = 2 * 1024 * 1024
 let blockLayoutChars = 0
 
-/** Render a complete document without retaining a second copy of its blocks. */
-export function renderMarkdown(source: string, theme: Theme, width: number, style?: MarkdownStyle): string[] {
-  return renderDocument(source, theme, width, style, false)
+interface StreamingPrefixEntry {
+  readonly lastSource: string
+  readonly prefixRaw: string
+  readonly prefixLines: readonly string[]
 }
 
-/** Reuse resolved block layouts while an assistant response is still growing. */
-export function renderStreamingMarkdown(source: string, theme: Theme, width: number, style?: MarkdownStyle): string[] {
-  return renderDocument(source, theme, width, style, true)
+// Memoize the frozen top-level prefix of a growing streaming response so appends
+// only preprocess, lex, and render the mutable tail when Marked collects zero
+// reference-link definitions (`tokens.links`, including definitions nested inside
+// blockquotes or lists) in either the prefix or the tail.
+const streamingPrefixCache = new Map<string, StreamingPrefixEntry>()
+const MAX_STREAMING_PREFIXES = 4
+
+function hasLinkDefinitions(tokens: ReturnType<Marked['lexer']>): boolean {
+  for (const _ in tokens.links) return true
+  return false
 }
 
-function renderDocument(source: string, theme: Theme, width: number, style: MarkdownStyle | undefined, streaming: boolean): string[] {
-  const prepared = prepare(source)
-  // Extension start hooks scan the remaining source at each block. Most prose
-  // has no math delimiters at all and can use the identical base grammar.
-  const lexer = prepared.includes('$') || prepared.includes('\\(') || prepared.includes('\\[') ? parser : proseParser
-  const tokens = lexer.lexer(prepared)
-  const context = JSON.stringify([theme.key, width, style])
-  const lines: string[] = []
+function trimBlankEdges(lines: string[]): string[] {
+  let start = 0
+  while (start < lines.length && lines[start] === '') start += 1
+  let end = lines.length
+  while (end > start && lines[end - 1] === '') end -= 1
+  return start === 0 && end === lines.length ? lines : lines.slice(start, end)
+}
+
+function appendStrings(target: string[], source: readonly string[]): void {
+  for (let i = 0; i < source.length; i += 1) target.push(source[i]!)
+}
+
+/** Find a safe prefix cut ending on a `space` token at least 2 tokens before the end. */
+function stablePrefixTokenCount(tokens: readonly Token[]): number {
+  if (tokens.length < 4) return 0
+  for (let i = tokens.length - 3; i >= 1; i -= 1) {
+    const token = tokens[i]
+    if (token?.type === 'space' && token.raw.includes('\n\n')) return i + 1
+  }
+  return 0
+}
+
+function renderTokenList(
+  tokens: readonly Token[],
+  theme: Theme,
+  width: number,
+  style: MarkdownStyle | undefined,
+  context: string | undefined,
+  target: string[],
+): void {
   for (const token of tokens) {
-    if (!streaming) {
-      lines.push(...renderTokens([token], theme, width, 0, style))
+    if (context === undefined) {
+      appendStrings(target, renderTokens([token], theme, width, 0, style))
       continue
     }
     const key = context + JSON.stringify(token)
@@ -670,7 +705,7 @@ function renderDocument(source: string, theme: Theme, width: number, style: Mark
     if (cached !== undefined) {
       blockLayouts.delete(key)
       blockLayouts.set(key, cached)
-      lines.push(...cached.lines)
+      appendStrings(target, cached.lines)
       continue
     }
     const rendered = renderTokens([token], theme, width, 0, style)
@@ -684,9 +719,96 @@ function renderDocument(source: string, theme: Theme, width: number, style: Mark
       blockLayouts.set(key, { lines: rendered, size })
       blockLayoutChars += size
     }
-    lines.push(...rendered)
+    appendStrings(target, rendered)
   }
-  while (lines.length > 0 && lines[lines.length - 1] === '') lines.pop()
-  while (lines[0] === '') lines.shift()
-  return lines
+}
+
+function setStreamingPrefix(context: string, entry: StreamingPrefixEntry): void {
+  streamingPrefixCache.delete(context)
+  while (streamingPrefixCache.size >= MAX_STREAMING_PREFIXES) {
+    streamingPrefixCache.delete(streamingPrefixCache.keys().next().value!)
+  }
+  streamingPrefixCache.set(context, entry)
+}
+
+/** Render a complete document without retaining a second copy of its blocks. */
+export function renderMarkdown(source: string, theme: Theme, width: number, style?: MarkdownStyle): string[] {
+  return renderDocument(source, theme, width, style, false)
+}
+
+/** Reuse resolved block layouts while an assistant response is still growing. */
+export function renderStreamingMarkdown(source: string, theme: Theme, width: number, style?: MarkdownStyle): string[] {
+  return renderDocument(source, theme, width, style, true)
+}
+
+function renderDocument(source: string, theme: Theme, width: number, style: MarkdownStyle | undefined, streaming: boolean): string[] {
+  const normalized = source.includes('\r') ? source.replaceAll('\r\n', '\n').replaceAll('\r', '\n') : source
+  if (!streaming) {
+    const prepared = clampNesting(normalized)
+    const lexer = prepared.includes('$') || prepared.includes('\\(') || prepared.includes('\\[') ? parser : proseParser
+    const tokens = lexer.lexer(prepared)
+    const lines: string[] = []
+    renderTokenList(tokens, theme, width, style, undefined, lines)
+    return trimBlankEdges(lines)
+  }
+  const context = JSON.stringify([theme.key, width, style])
+  const cachedPrefix = streamingPrefixCache.get(context)
+  if (
+    cachedPrefix !== undefined
+    && normalized.length >= cachedPrefix.lastSource.length
+    && normalized.startsWith(cachedPrefix.lastSource)
+  ) {
+    const tail = normalized.slice(cachedPrefix.prefixRaw.length)
+    const preparedTail = clampNesting(tail)
+    const tailLexer = preparedTail.includes('$') || preparedTail.includes('\\(') || preparedTail.includes('\\[') ? parser : proseParser
+    const tailTokens = tailLexer.lexer(preparedTail)
+    if (!hasLinkDefinitions(tailTokens)) {
+      const cut = preparedTail === tail ? stablePrefixTokenCount(tailTokens) : 0
+      if (cut > 0) {
+        const promotedRaw = tailTokens.slice(0, cut).map(token => token.raw).join('')
+        const promotedLines: string[] = []
+        renderTokenList(tailTokens.slice(0, cut), theme, width, style, context, promotedLines)
+        const nextPrefixLines: string[] = []
+        appendStrings(nextPrefixLines, cachedPrefix.prefixLines)
+        appendStrings(nextPrefixLines, promotedLines)
+        const nextEntry: StreamingPrefixEntry = {
+          lastSource: normalized,
+          prefixRaw: cachedPrefix.prefixRaw + promotedRaw,
+          prefixLines: nextPrefixLines,
+        }
+        setStreamingPrefix(context, nextEntry)
+        const lines: string[] = []
+        appendStrings(lines, nextPrefixLines)
+        renderTokenList(tailTokens.slice(cut), theme, width, style, context, lines)
+        return trimBlankEdges(lines)
+      }
+      setStreamingPrefix(context, {
+        lastSource: normalized,
+        prefixRaw: cachedPrefix.prefixRaw,
+        prefixLines: cachedPrefix.prefixLines,
+      })
+      const lines: string[] = []
+      appendStrings(lines, cachedPrefix.prefixLines)
+      renderTokenList(tailTokens, theme, width, style, context, lines)
+      return trimBlankEdges(lines)
+    }
+  }
+  const prepared = clampNesting(normalized)
+  // Extension start hooks scan the remaining source at each block. Most prose
+  // has no math delimiters at all and can use the identical base grammar.
+  const lexer = prepared.includes('$') || prepared.includes('\\(') || prepared.includes('\\[') ? parser : proseParser
+  const tokens = lexer.lexer(prepared)
+  const lines: string[] = []
+  const cut = !hasLinkDefinitions(tokens) && prepared === normalized ? stablePrefixTokenCount(tokens) : 0
+  if (cut > 0) {
+    const prefixRaw = tokens.slice(0, cut).map(token => token.raw).join('')
+    const prefixLines: string[] = []
+    renderTokenList(tokens.slice(0, cut), theme, width, style, context, prefixLines)
+    setStreamingPrefix(context, { lastSource: normalized, prefixRaw, prefixLines })
+    appendStrings(lines, prefixLines)
+    renderTokenList(tokens.slice(cut), theme, width, style, context, lines)
+  } else {
+    renderTokenList(tokens, theme, width, style, context, lines)
+  }
+  return trimBlankEdges(lines)
 }
