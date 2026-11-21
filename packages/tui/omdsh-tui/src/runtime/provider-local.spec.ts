@@ -7781,13 +7781,15 @@ it('awaits all overlapping settings saves on dispose even when the first finishe
 })
 
 describe('clickable local file link preview', () => {
+  const stubCopy = async (): Promise<void> => {}
+
   it('opens a clicked Markdown file link at the referenced line, reloads on R, and restores transcript on Esc', async () => {
     const dir = mkdtempSync(join(tmpdir(), 'omdsh-link-preview-'))
     const filePath = join(dir, 'sample.ts')
     const lines = Array.from({ length: 40 }, (_, i) => `export const line_${i + 1} = ${i + 1}`)
     writeFileSync(filePath, lines.join('\n') + '\n')
     const term = new ScrollingTerminal(90, 24)
-    const tui = new LocalTui(term, 'm', true, 'dark', copyToClipboard, { cwd: dir })
+    const tui = new LocalTui(term, 'm', true, 'dark', stubCopy, { cwd: dir })
     try {
       tui.applyStoredPrefs({ ...tui.prefs(), mouseInteraction: 'tui' })
       tui.event({
@@ -7838,7 +7840,7 @@ describe('clickable local file link preview', () => {
     writeFileSync(join(docsDir, 'index.md'), '# Guide\n\nSee [details](./child.ts#L3) next.\n')
     writeFileSync(join(docsDir, 'child.ts'), 'const a = 1\nconst b = 2\nconst target = 3\n')
     const term = new ScrollingTerminal(90, 24)
-    const tui = new LocalTui(term, 'm', true, 'dark', copyToClipboard, { cwd: dir })
+    const tui = new LocalTui(term, 'm', true, 'dark', stubCopy, { cwd: dir })
     try {
       tui.applyStoredPrefs({ ...tui.prefs(), mouseInteraction: 'tui' })
       tui.event({
@@ -7890,7 +7892,8 @@ describe('clickable local file link preview', () => {
     const dir = mkdtempSync(join(tmpdir(), 'omdsh-link-guards-'))
     writeFileSync(join(dir, 'present.ts'), 'export const ok = true\n')
     const term = new ScrollingTerminal(90, 24)
-    const tui = new LocalTui(term, 'm', true, 'dark', copyToClipboard, { cwd: dir })
+    const copy = vi.fn(async (_text: string) => {})
+    const tui = new LocalTui(term, 'm', true, 'dark', copy, { cwd: dir })
     try {
       tui.applyStoredPrefs({ ...tui.prefs(), mouseInteraction: 'tui' })
       tui.event({
@@ -7912,6 +7915,7 @@ describe('clickable local file link preview', () => {
       // Even a single-cell horizontal drag across a link selects text instead of opening preview.
       press(term, `\x1b[<0;${col + 1};${row + 1}M\x1b[<32;${col + 2};${row + 1}M\x1b[<0;${col + 2};${row + 1}m`)
       await vi.waitFor(() => {
+        expect(copy).toHaveBeenCalled()
         expect(term.visible().join('\n')).toContain('Copied selection')
       })
       expect(term.visible().join('\n')).not.toContain('File preview')
@@ -7946,7 +7950,7 @@ describe('clickable local file link preview', () => {
     execFileSync('git', ['init'], { cwd: root, stdio: 'ignore' })
     writeFileSync(join(pkgDir, 'width.ts'), 'const a = 1\nconst b = 2\nexport const foundAtRoot = true\n')
     const term = new ScrollingTerminal(90, 24)
-    const tui = new LocalTui(term, 'm', true, 'dark', copyToClipboard, { cwd: root })
+    const tui = new LocalTui(term, 'm', true, 'dark', stubCopy, { cwd: root })
     try {
       tui.applyStoredPrefs({ ...tui.prefs(), mouseInteraction: 'tui' })
       // SessionController initializes the active subdirectory via setWorkingDirectory.
@@ -7983,7 +7987,7 @@ describe('clickable local file link preview', () => {
     const filler = Array.from({ length: 30 }, (_, i) => `Filler line ${i + 1}`).join('\n\n')
     writeFileSync(join(dir, 'doc.md'), `[first](./code.ts#L5) and [second](./code.ts#L65)\n\n${filler}\n\n[broken](./nope.ts)\n`)
     const term = new ScrollingTerminal(90, 24)
-    const tui = new LocalTui(term, 'm', true, 'dark', copyToClipboard, { cwd: dir })
+    const tui = new LocalTui(term, 'm', true, 'dark', stubCopy, { cwd: dir })
     try {
       tui.applyStoredPrefs({ ...tui.prefs(), mouseInteraction: 'tui' })
       tui.setInspectedSubagent({ id: 'child-1', label: 'Explore', phase: 'completed', writable: false })
@@ -8069,7 +8073,7 @@ describe('clickable local file link preview', () => {
     writeFileSync(join(dir, 'guide.md'), '# Guide\n\nSee [child](./child.ts#L2).\n')
     writeFileSync(join(dir, 'child.ts'), 'const one = 1\nconst two = 2\n')
     const term = new ScrollingTerminal(90, 24)
-    const tui = new LocalTui(term, 'm', true, 'dark', copyToClipboard, { cwd: dir, alternateScreenOverlays: true })
+    const tui = new LocalTui(term, 'm', true, 'dark', stubCopy, { cwd: dir, alternateScreenOverlays: true })
     const editorSpy = vi.spyOn(externalEditor, 'editFileExternally').mockImplementation(() => {
       // Simulate a full-screen terminal editor (vim/nvim) entering and leaving alternate screen.
       term.output.write('\x1b[?1049hEDITOR\x1b[?1049l')
@@ -8149,7 +8153,7 @@ describe('clickable local file link preview', () => {
     writeFileSync(join(dir, 'sample.ts'), 'export const x = 1\n')
     writeFileSync(join(dir, 'other.ts'), 'export const y = 2\n')
     const term = new ScrollingTerminal(90, 24)
-    const tui = new LocalTui(term, 'm', true, 'dark', copyToClipboard, { cwd: dir })
+    const tui = new LocalTui(term, 'm', true, 'dark', stubCopy, { cwd: dir })
     try {
       tui.applyStoredPrefs({ ...tui.prefs(), mouseInteraction: 'tui' })
       tui.event({
@@ -8235,7 +8239,7 @@ describe('clickable local file link preview', () => {
     const png = await sharp({ create: { width: 4, height: 4, channels: 4, background: { r: 64, g: 128, b: 255, alpha: 1 } } }).png().toBuffer()
     writeFileSync(join(dir, 'pic.png'), png)
     const term = new ScrollingTerminal(90, 24)
-    const tui = new LocalTui(term, 'm', true, 'dark', copyToClipboard, { cwd: dir })
+    const tui = new LocalTui(term, 'm', true, 'dark', stubCopy, { cwd: dir })
     try {
       tui.applyStoredPrefs({ ...tui.prefs(), mouseInteraction: 'tui' })
       tui.setInspectedSubagent({ id: 'child-ro', label: 'Explore', phase: 'completed', writable: false })
