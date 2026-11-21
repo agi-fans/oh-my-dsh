@@ -14,7 +14,7 @@ When content grows huge, omdsh enforces clear guardrails to protect terminal res
 |---|---|
 | **Long sessions (thousands of turns)** | Linear replay plus cached completed blocks mean typing and scrolling never re-format old turns. Run `/compact` when footer `Ctx` passes 75% to keep model latency low. |
 | **Large files & diffs (`/diff`)** | Loads **128 KiB** initially and doubles with `L` (`Load more`) up to **4 MiB**; open larger or binary files externally with `O`. Horizontal panning slices only visible rows on demand. |
-| **Very long streaming replies** | Dense deltas coalesce inside an 8 ms frame window and reuse parsed Markdown block layouts; extremely large (~120K char) rich replies still cost ~22 ms per frame. |
+| **Very long streaming replies** | Dense deltas coalesce inside an 8 ms frame window and reuse already-committed Markdown prefix blocks across streaming appends, keeping even ~120K-char rich replies well within the frame budget unless link definitions or layout width change. |
 | **File recovery snapshots (`Alt+R`)** | Automatically skips capture if a file exceeds **128 MiB**, a snapshot exceeds **1 GiB**, or a workspace exceeds **10,000** entries so normal turns stay fast. |
 | **Images & archive exports** | Single image uploads cap at **20 MiB** (oversized resolutions scale automatically); preview decoding caps at 32 MiB / 40 MP; `/export archive` caps at **64 MiB** uncompressed. |
 | **tmux / multiplexer resizing** | Coalesces resize bursts before redrawing while preserving host scrollback; press `Alt+L` anytime to repaint the live viewport after reattaching. |
@@ -23,7 +23,7 @@ When content grows huge, omdsh enforces clear guardrails to protect terminal res
 
 1. **Linear-time session replay:** Reconstructing durable logs uses a linear pass with a `callId → block index` map so tool-heavy histories scale linearly rather than quadratically.
 2. **Direct metering projections:** Token counts, context pressure, and stats come straight from Harness projections instead of re-scanning event logs on every streaming token.
-3. **Block and streaming caches:** Completed Markdown and tool cards cache formatted rows by identity and width, reused across typing, animations, and scrolling.
+3. **Block and streaming caches:** Completed Markdown, tool cards, sticky headers, and committed streaming Markdown prefixes cache formatted rows by identity and width, reused across streaming appends, typing, animations, and scrolling.
 4. **Line-level differential output:** Each frame writes only changed visible rows, minimizing terminal work and SSH bandwidth.
 
 ## 3. Measured benchmarks (2026-11-06)
