@@ -7779,3 +7779,508 @@ it('awaits all overlapping settings saves on dispose even when the first finishe
   expect(secondSettled).toBe(true)
   expect(disposed).toBe(true)
 })
+
+describe('clickable local file link preview', () => {
+  it('opens a clicked Markdown file link at the referenced line, reloads on R, and restores transcript on Esc', async () => {
+    const dir = mkdtempSync(join(tmpdir(), 'omdsh-link-preview-'))
+    const filePath = join(dir, 'sample.ts')
+    const lines = Array.from({ length: 40 }, (_, i) => `export const line_${i + 1} = ${i + 1}`)
+    writeFileSync(filePath, lines.join('\n') + '\n')
+    const term = new ScrollingTerminal(90, 24)
+    const tui = new LocalTui(term, 'm', true, 'dark', copyToClipboard, { cwd: dir })
+    try {
+      tui.applyStoredPrefs({ ...tui.prefs(), mouseInteraction: 'tui' })
+      tui.event({
+        type: 'assistant/message',
+        seq: 1,
+        time: 1000,
+        data: {
+          turn: 1,
+          step: 1,
+          message: { role: 'assistant', content: [{ type: 'text', text: 'Inspect [sample.ts](sample.ts#L25) for details.' }] },
+        },
+      } as unknown as SessionEvent)
+      const before = term.visible()
+      const history = term.scrollback()
+      const row = before.findIndex(line => line.includes('sample.ts'))
+      expect(row).toBeGreaterThanOrEqual(0)
+      const col = before[row]!.indexOf('sample.ts') + 3
+      // SGR mouse press + release (1-based coords)
+      press(term, `\x1b[<0;${col + 1};${row + 1}M\x1b[<0;${col + 1};${row + 1}m`)
+      await vi.waitFor(() => {
+        const view = term.visible().join('\n')
+        expect(view).toContain('File preview')
+        expect(view).toContain('sample.ts:25')
+        expect(view).toContain('line_25')
+      })
+      // Reload reflects disk edits in place.
+      lines[24] = 'export const line_25 = 999'
+      writeFileSync(filePath, lines.join('\n') + '\n')
+      press(term, 'r')
+      await vi.waitFor(() => {
+        expect(term.visible().join('\n')).toContain('line_25 = 999')
+      })
+      press(term, '\x1b')
+      await vi.waitFor(() => {
+        expect(term.visible()).toEqual(before)
+      })
+      expect(term.scrollback()).toEqual(history)
+    } finally {
+      tui.dispose()
+      rmSync(dir, { recursive: true, force: true })
+    }
+  })
+
+  it('follows relative links inside a rendered Markdown preview and returns on Esc', async () => {
+    const dir = mkdtempSync(join(tmpdir(), 'omdsh-md-link-nav-'))
+    const docsDir = join(dir, 'docs')
+    mkdirSync(docsDir, { recursive: true })
+    writeFileSync(join(docsDir, 'index.md'), '# Guide\n\nSee [details](./child.ts#L3) next.\n')
+    writeFileSync(join(docsDir, 'child.ts'), 'const a = 1\nconst b = 2\nconst target = 3\n')
+    const term = new ScrollingTerminal(90, 24)
+    const tui = new LocalTui(term, 'm', true, 'dark', copyToClipboard, { cwd: dir })
+    try {
+      tui.applyStoredPrefs({ ...tui.prefs(), mouseInteraction: 'tui' })
+      tui.event({
+        type: 'assistant/message',
+        seq: 1,
+        time: 1000,
+        data: {
+          turn: 1,
+          step: 1,
+          message: { role: 'assistant', content: [{ type: 'text', text: 'Read [docs/index.md](docs/index.md).' }] },
+        },
+      } as unknown as SessionEvent)
+      const before = term.visible()
+      const row = before.findIndex(line => line.includes('docs/index.md'))
+      const col = before[row]!.indexOf('docs/index.md') + 3
+      press(term, `\x1b[<0;${col + 1};${row + 1}M\x1b[<0;${col + 1};${row + 1}m`)
+      await vi.waitFor(() => {
+        const view = term.visible().join('\n')
+        expect(view).toContain('File preview')
+        expect(view).toContain('details')
+      })
+      const mdScreen = term.visible()
+      const childRow = mdScreen.findIndex(line => line.includes('details'))
+      const childCol = mdScreen[childRow]!.indexOf('details') + 2
+      press(term, `\x1b[<0;${childCol + 1};${childRow + 1}M\x1b[<0;${childCol + 1};${childRow + 1}m`)
+      await vi.waitFor(() => {
+        const view = term.visible().join('\n')
+        expect(view).toContain('File preview · 2')
+        expect(view).toContain('const target = 3')
+      })
+      // Esc pops back to docs/index.md first, then second Esc returns to main transcript.
+      press(term, '\x1b')
+      await vi.waitFor(() => {
+        const view = term.visible().join('\n')
+        expect(view).toContain('docs/index.md')
+        expect(view).not.toContain('File preview · 2')
+      })
+      press(term, '\x1b')
+      await vi.waitFor(() => {
+        expect(term.visible()).toEqual(before)
+      })
+    } finally {
+      tui.dispose()
+      rmSync(dir, { recursive: true, force: true })
+    }
+  })
+
+  it('keeps drag selection working across links, reports missing files cleanly, and ignores web URLs', async () => {
+    const dir = mkdtempSync(join(tmpdir(), 'omdsh-link-guards-'))
+    writeFileSync(join(dir, 'present.ts'), 'export const ok = true\n')
+    const term = new ScrollingTerminal(90, 24)
+    const tui = new LocalTui(term, 'm', true, 'dark', copyToClipboard, { cwd: dir })
+    try {
+      tui.applyStoredPrefs({ ...tui.prefs(), mouseInteraction: 'tui' })
+      tui.event({
+        type: 'assistant/message',
+        seq: 1,
+        time: 1000,
+        data: {
+          turn: 1,
+          step: 1,
+          message: {
+            role: 'assistant',
+            content: [{ type: 'text', text: 'Check [present.ts](present.ts), [missing.ts](missing.ts), and [site](https://example.com).' }],
+          },
+        },
+      } as unknown as SessionEvent)
+      const screen = term.visible()
+      const row = screen.findIndex(line => line.includes('present.ts'))
+      const col = screen[row]!.indexOf('present.ts')
+      // Even a single-cell horizontal drag across a link selects text instead of opening preview.
+      press(term, `\x1b[<0;${col + 1};${row + 1}M\x1b[<32;${col + 2};${row + 1}M\x1b[<0;${col + 2};${row + 1}m`)
+      await vi.waitFor(() => {
+        expect(term.visible().join('\n')).toContain('Copied selection')
+      })
+      expect(term.visible().join('\n')).not.toContain('File preview')
+
+      // Clicking a missing file shows transient status without opening a full-screen overlay.
+      const missRow = term.visible().findIndex(line => line.includes('missing.ts'))
+      const missCol = term.visible()[missRow]!.indexOf('missing.ts') + 2
+      press(term, `\x1b[<0;${missCol + 1};${missRow + 1}M\x1b[<0;${missCol + 1};${missRow + 1}m`)
+      await vi.waitFor(() => {
+        expect(term.visible().join('\n')).toContain('File not found: missing.ts')
+      })
+      expect(term.visible().join('\n')).not.toContain('File preview')
+
+      // Clicking a web URL does not trigger local file preview.
+      const webRow = term.visible().findIndex(line => line.includes('site'))
+      const webCol = term.visible()[webRow]!.indexOf('site') + 1
+      press(term, `\x1b[<0;${webCol + 1};${webRow + 1}M\x1b[<0;${webCol + 1};${webRow + 1}m`)
+      await new Promise(resolve => setTimeout(resolve, 20))
+      expect(term.visible().join('\n')).not.toContain('File preview')
+    } finally {
+      tui.dispose()
+      rmSync(dir, { recursive: true, force: true })
+    }
+  })
+
+  it('falls back to the Git repository root after setWorkingDirectory in a monorepo subdirectory', async () => {
+    const root = mkdtempSync(join(tmpdir(), 'omdsh-monorepo-link-'))
+    const sub = join(root, 'apps', 'omdsh')
+    const pkgDir = join(root, 'packages', 'tui')
+    mkdirSync(sub, { recursive: true })
+    mkdirSync(pkgDir, { recursive: true })
+    execFileSync('git', ['init'], { cwd: root, stdio: 'ignore' })
+    writeFileSync(join(pkgDir, 'width.ts'), 'const a = 1\nconst b = 2\nexport const foundAtRoot = true\n')
+    const term = new ScrollingTerminal(90, 24)
+    const tui = new LocalTui(term, 'm', true, 'dark', copyToClipboard, { cwd: root })
+    try {
+      tui.applyStoredPrefs({ ...tui.prefs(), mouseInteraction: 'tui' })
+      // SessionController initializes the active subdirectory via setWorkingDirectory.
+      tui.setWorkingDirectory(sub)
+      tui.event({
+        type: 'assistant/message',
+        seq: 1,
+        time: 1000,
+        data: {
+          turn: 1,
+          step: 1,
+          message: { role: 'assistant', content: [{ type: 'text', text: 'See [width.ts](packages/tui/width.ts#L3).' }] },
+        },
+      } as unknown as SessionEvent)
+      const row = term.visible().findIndex(line => line.includes('width.ts'))
+      const col = term.visible()[row]!.indexOf('width.ts') + 2
+      press(term, `\x1b[<0;${col + 1};${row + 1}M\x1b[<0;${col + 1};${row + 1}m`)
+      await vi.waitFor(() => {
+        const view = term.visible().join('\n')
+        expect(view).toContain('File preview')
+        expect(view).toContain('foundAtRoot = true')
+      })
+      press(term, '\x1b')
+    } finally {
+      tui.dispose()
+      rmSync(root, { recursive: true, force: true })
+    }
+  })
+
+  it('keeps reader focus on reload, honors new #L targets on the same file, reports scrolled sub-link errors in footer, and hides Quote in read-only inspection', async () => {
+    const dir = mkdtempSync(join(tmpdir(), 'omdsh-link-edges-'))
+    const codeLines = Array.from({ length: 80 }, (_, i) => `export const row_${i + 1} = ${i + 1}`).join('\n') + '\n'
+    writeFileSync(join(dir, 'code.ts'), codeLines)
+    const filler = Array.from({ length: 30 }, (_, i) => `Filler line ${i + 1}`).join('\n\n')
+    writeFileSync(join(dir, 'doc.md'), `[first](./code.ts#L5) and [second](./code.ts#L65)\n\n${filler}\n\n[broken](./nope.ts)\n`)
+    const term = new ScrollingTerminal(90, 24)
+    const tui = new LocalTui(term, 'm', true, 'dark', copyToClipboard, { cwd: dir })
+    try {
+      tui.applyStoredPrefs({ ...tui.prefs(), mouseInteraction: 'tui' })
+      tui.setInspectedSubagent({ id: 'child-1', label: 'Explore', phase: 'completed', writable: false })
+      tui.event({
+        type: 'assistant/message',
+        seq: 1,
+        time: 1000,
+        data: {
+          turn: 1,
+          step: 1,
+          message: { role: 'assistant', content: [{ type: 'text', text: 'Open [doc.md](doc.md).' }] },
+        },
+      } as unknown as SessionEvent)
+      const before = term.visible()
+      const row = before.findIndex(line => line.includes('doc.md'))
+      const col = before[row]!.indexOf('doc.md') + 2
+      press(term, `\x1b[<0;${col + 1};${row + 1}M\x1b[<0;${col + 1};${row + 1}m`)
+      await vi.waitFor(() => {
+        const view = term.visible().join('\n')
+        expect(view).toContain('File preview')
+        expect(view).toContain('first')
+      })
+      // Read-only subagent inspection omits Quote.
+      expect(term.visible().join('\n')).not.toContain('[ Quote ]')
+
+      // Click first link (#L5), verify line 5, press Esc back to doc.md.
+      const firstRow = term.visible().findIndex(line => line.includes('first'))
+      const firstCol = term.visible()[firstRow]!.indexOf('first') + 1
+      press(term, `\x1b[<0;${firstCol + 1};${firstRow + 1}M\x1b[<0;${firstCol + 1};${firstRow + 1}m`)
+      await vi.waitFor(() => {
+        expect(term.visible().join('\n')).toContain('Line 5/')
+      })
+      press(term, '\x1b')
+      await vi.waitFor(() => {
+        expect(term.visible().join('\n')).toContain('second')
+      })
+
+      // Click second link to the same file (#L65), verify it jumps to line 65 instead of reusing line 5.
+      const secondRow = term.visible().findIndex(line => line.includes('second'))
+      const secondCol = term.visible()[secondRow]!.indexOf('second') + 1
+      press(term, `\x1b[<0;${secondCol + 1};${secondRow + 1}M\x1b[<0;${secondCol + 1};${secondRow + 1}m`)
+      await vi.waitFor(() => {
+        expect(term.visible().join('\n')).toContain('Line 65/')
+      })
+
+      // Pressing R followed immediately by Esc never reopens the closed reader.
+      press(term, 'r')
+      // Prompt stays open immediately after pressing R (no main-screen flash).
+      expect(term.visible().join('\n')).toContain('File preview')
+      press(term, '\x1b')
+      await vi.waitFor(() => {
+        expect(term.visible().join('\n')).toContain('doc.md')
+      })
+
+      // Scroll down to bottom of doc.md and click broken link: error appears in bottom notice bar.
+      press(term, '\x1b[F')
+      await vi.waitFor(() => {
+        expect(term.visible().join('\n')).toContain('broken')
+      })
+      const brokenRow = term.visible().findIndex(line => line.includes('broken'))
+      const brokenCol = term.visible()[brokenRow]!.indexOf('broken') + 1
+      press(term, `\x1b[<0;${brokenCol + 1};${brokenRow + 1}M\x1b[<0;${brokenCol + 1};${brokenRow + 1}m`)
+      await vi.waitFor(() => {
+        expect(term.visible().join('\n')).toContain('File not found: nope.ts')
+      })
+
+      // Close completely with Esc right after pressing R: must close and stay closed.
+      press(term, 'r')
+      press(term, '\x1b')
+      await vi.waitFor(() => {
+        expect(term.visible()).toEqual(before)
+      })
+      await new Promise(resolve => setTimeout(resolve, 40))
+      expect(term.visible()).toEqual(before)
+    } finally {
+      tui.dispose()
+      rmSync(dir, { recursive: true, force: true })
+    }
+  })
+
+  it('re-enters alternate screen after a full-screen external editor, rejects Quote if session becomes read-only mid-preview, and keeps child as Quote target while Back loads', async () => {
+    const dir = mkdtempSync(join(tmpdir(), 'omdsh-link-editor-ro-'))
+    writeFileSync(join(dir, 'guide.md'), '# Guide\n\nSee [child](./child.ts#L2).\n')
+    writeFileSync(join(dir, 'child.ts'), 'const one = 1\nconst two = 2\n')
+    const term = new ScrollingTerminal(90, 24)
+    const tui = new LocalTui(term, 'm', true, 'dark', copyToClipboard, { cwd: dir, alternateScreenOverlays: true })
+    const editorSpy = vi.spyOn(externalEditor, 'editFileExternally').mockImplementation(() => {
+      // Simulate a full-screen terminal editor (vim/nvim) entering and leaving alternate screen.
+      term.output.write('\x1b[?1049hEDITOR\x1b[?1049l')
+    })
+    try {
+      tui.applyStoredPrefs({ ...tui.prefs(), mouseInteraction: 'tui' })
+      tui.setInspectedSubagent({ id: 'child-1', label: 'Explore', phase: 'running', writable: true })
+      tui.event({
+        type: 'assistant/message',
+        seq: 1,
+        time: 1000,
+        data: {
+          turn: 1,
+          step: 1,
+          message: { role: 'assistant', content: [{ type: 'text', text: 'Open [guide.md](guide.md).' }] },
+        },
+      } as unknown as SessionEvent)
+      const row = term.visible().findIndex(line => line.includes('guide.md'))
+      const col = term.visible()[row]!.indexOf('guide.md') + 2
+      press(term, `\x1b[<0;${col + 1};${row + 1}M\x1b[<0;${col + 1};${row + 1}m`)
+      await vi.waitFor(() => {
+        expect(term.visible().join('\n')).toContain('child')
+      })
+
+      // Press E: preview leaves its alt screen, editor enters/leaves its own alt screen, then preview re-enters alt screen.
+      const beforeEditor = term.captured.length
+      press(term, 'e')
+      expect(editorSpy).toHaveBeenCalledTimes(1)
+      const editorDelta = term.captured.slice(beforeEditor)
+      const leaveBeforeEditorAt = editorDelta.indexOf('\x1b[?1049l')
+      const editorEnterAt = editorDelta.indexOf('\x1b[?1049hEDITOR\x1b[?1049l')
+      const editorExitAt = editorDelta.lastIndexOf('\x1b[?1049l')
+      const reenterAltAt = editorDelta.lastIndexOf('\x1b[?1049h')
+      expect(leaveBeforeEditorAt).toBeGreaterThanOrEqual(0)
+      expect(editorEnterAt).toBeGreaterThan(leaveBeforeEditorAt)
+      expect(reenterAltAt).toBeGreaterThan(editorExitAt)
+      expect(term.visible().join('\n')).toContain('Editor command completed.')
+
+      // Navigate into child.ts#L2.
+      const childRow = term.visible().findIndex(line => line.includes('child'))
+      const childCol = term.visible()[childRow]!.indexOf('child') + 1
+      press(term, `\x1b[<0;${childCol + 1};${childRow + 1}M\x1b[<0;${childCol + 1};${childRow + 1}m`)
+      await vi.waitFor(() => {
+        expect(term.visible().join('\n')).toContain('child.ts:2')
+      })
+
+      // Session becomes read-only while preview is open: Q must not close or falsely report Quoted.
+      tui.setInspectedSubagent({ id: 'child-1', label: 'Explore', phase: 'completed', writable: false })
+      press(term, 'q')
+      expect(term.visible().join('\n')).toContain('File preview · 2')
+      expect(term.visible().join('\n')).toContain('Read-only session; cannot quote to composer.')
+
+      // Restore writable, then press B immediately followed by Q before parent finishes loading:
+      // Quote must cite the still-displayed child.ts, not guide.md, and report transiently instead of in the transcript.
+      tui.setInspectedSubagent({ id: 'child-1', label: 'Explore', phase: 'running', writable: true })
+      press(term, 'b')
+      press(term, 'q')
+      await vi.waitFor(() => {
+        const view = term.visible().join('\n')
+        expect(view).not.toContain('File preview')
+        expect(view).toContain('@child.ts:1')
+        expect(view).toContain('Quoted @child.ts:1 in composer.')
+        expect(view).not.toContain('@guide.md')
+      })
+      // Transient status clears on the next keypress instead of staying in the transcript.
+      press(term, ' ')
+      expect(term.visible().join('\n')).not.toContain('Quoted @child.ts:1 in composer.')
+    } finally {
+      editorSpy.mockRestore()
+      tui.dispose()
+      rmSync(dir, { recursive: true, force: true })
+    }
+  })
+
+  it('cancels an initial file-link click cleanly without blocking subsequent clicks, Ctrl+C, prompts without signal, or autocomplete Esc', async () => {
+    const dir = mkdtempSync(join(tmpdir(), 'omdsh-link-cancel-initial-'))
+    writeFileSync(join(dir, 'sample.ts'), 'export const x = 1\n')
+    writeFileSync(join(dir, 'other.ts'), 'export const y = 2\n')
+    const term = new ScrollingTerminal(90, 24)
+    const tui = new LocalTui(term, 'm', true, 'dark', copyToClipboard, { cwd: dir })
+    try {
+      tui.applyStoredPrefs({ ...tui.prefs(), mouseInteraction: 'tui' })
+      tui.event({
+        type: 'assistant/message',
+        seq: 1,
+        time: 1000,
+        data: {
+          turn: 1,
+          step: 1,
+          message: { role: 'assistant', content: [{ type: 'text', text: 'Open [sample.ts](sample.ts) or [other.ts](other.ts).' }] },
+        },
+      } as unknown as SessionEvent)
+      const row = term.visible().findIndex(line => line.includes('sample.ts'))
+      const sampleCol = term.visible()[row]!.indexOf('sample.ts') + 2
+      const otherCol = term.visible()[row]!.indexOf('other.ts') + 2
+
+      // Click and immediately send Esc (CSI u), then immediately click other.ts before sample.ts settles.
+      press(term, `\x1b[<0;${sampleCol + 1};${row + 1}M\x1b[<0;${sampleCol + 1};${row + 1}m\x1b[27u`)
+      press(term, `\x1b[<0;${otherCol + 1};${row + 1}M\x1b[<0;${otherCol + 1};${row + 1}m`)
+      await vi.waitFor(() => {
+        const view = term.visible().join('\n')
+        expect(view).toContain('other.ts')
+        expect(view).toContain('export const y = 2')
+      })
+      press(term, '\x1b[27u')
+      await vi.waitFor(() => {
+        expect(term.visible().join('\n')).not.toContain('File preview')
+      })
+
+      // Draft + click + Esc + immediate Ctrl+C: Esc frees #fileReviewAbort so Ctrl+C clears draft immediately.
+      press(term, 'draft-text')
+      press(term, `\x1b[<0;${sampleCol + 1};${row + 1}M\x1b[<0;${sampleCol + 1};${row + 1}m\x1b[27u\x03`)
+      await new Promise(resolve => setTimeout(resolve, 40))
+      expect(term.visible().join('\n')).not.toContain('File preview')
+      expect(term.visible().join('\n')).not.toContain('draft-text')
+
+      // Click + immediate prompt() without signal: cancels pending file-link open even after prompt closes.
+      press(term, `\x1b[<0;${sampleCol + 1};${row + 1}M\x1b[<0;${sampleCol + 1};${row + 1}m`)
+      const promptPromise = tui.prompt({ title: 'Confirm', question: 'Proceed?', options: [{ label: 'Yes', value: 'yes' }] })
+      press(term, '\x1b[27u')
+      expect(await promptPromise).toBeNull()
+      await new Promise(resolve => setTimeout(resolve, 40))
+      expect(term.visible().join('\n')).not.toContain('File preview')
+
+      // Autocomplete open + click + Esc: dismisses autocomplete and cancels pending file-link open.
+      tui.setCommands([{ name: 'help', description: 'Show help' }])
+      press(term, '/h')
+      press(term, `\x1b[<0;${sampleCol + 1};${row + 1}M\x1b[<0;${sampleCol + 1};${row + 1}m\x1b[27u`)
+      await new Promise(resolve => setTimeout(resolve, 40))
+      expect(term.visible().join('\n')).not.toContain('File preview')
+      press(term, '\x03')
+
+      // Click + drag selection + Esc: clears selection and cancels pending file-link open.
+      press(term, `\x1b[<0;${sampleCol + 1};${row + 1}M\x1b[<0;${sampleCol + 1};${row + 1}m`)
+      press(term, `\x1b[<0;${otherCol + 1};${row + 1}M\x1b[<32;${otherCol + 4};${row + 1}M\x1b[<0;${otherCol + 4};${row + 1}m\x1b[27u`)
+      await new Promise(resolve => setTimeout(resolve, 40))
+      expect(term.visible().join('\n')).not.toContain('File preview')
+
+      // Click + /settings: opening Settings cancels the pending file-link open and keeps Settings focused.
+      press(term, `\x1b[<0;${sampleCol + 1};${row + 1}M\x1b[<0;${sampleCol + 1};${row + 1}m/settings\r`)
+      await new Promise(resolve => setTimeout(resolve, 40))
+      expect(term.visible().join('\n')).toContain('Settings')
+      expect(term.visible().join('\n')).not.toContain('File preview')
+      press(term, '\x1b[27u')
+
+      // While reader is open, a silent notify:false prompt without signal must reject instead of closing the reader.
+      press(term, `\x1b[<0;${sampleCol + 1};${row + 1}M\x1b[<0;${sampleCol + 1};${row + 1}m`)
+      await vi.waitFor(() => {
+        expect(term.visible().join('\n')).toContain('export const x = 1')
+      })
+      await expect(tui.prompt({ title: 'Silent', question: 'Ignore?', notify: false, options: [{ label: 'Ok', value: 'ok' }] }))
+        .rejects.toThrow('prompt already in flight')
+      expect(term.visible().join('\n')).toContain('export const x = 1')
+    } finally {
+      tui.dispose()
+      rmSync(dir, { recursive: true, force: true })
+    }
+  })
+
+  it('restores Quote on reload after leaving read-only and shows read-only Quote notice on image previews', async () => {
+    const dir = mkdtempSync(join(tmpdir(), 'omdsh-link-quote-image-'))
+    writeFileSync(join(dir, 'notes.md'), '# Notes\n\nSee [pic](./pic.png).\n')
+    const png = await sharp({ create: { width: 4, height: 4, channels: 4, background: { r: 64, g: 128, b: 255, alpha: 1 } } }).png().toBuffer()
+    writeFileSync(join(dir, 'pic.png'), png)
+    const term = new ScrollingTerminal(90, 24)
+    const tui = new LocalTui(term, 'm', true, 'dark', copyToClipboard, { cwd: dir })
+    try {
+      tui.applyStoredPrefs({ ...tui.prefs(), mouseInteraction: 'tui' })
+      tui.setInspectedSubagent({ id: 'child-ro', label: 'Explore', phase: 'completed', writable: false })
+      tui.event({
+        type: 'assistant/message',
+        seq: 1,
+        time: 1000,
+        data: {
+          turn: 1,
+          step: 1,
+          message: { role: 'assistant', content: [{ type: 'text', text: 'Open [notes.md](notes.md).' }] },
+        },
+      } as unknown as SessionEvent)
+      const row = term.visible().findIndex(line => line.includes('notes.md'))
+      const col = term.visible()[row]!.indexOf('notes.md') + 2
+      press(term, `\x1b[<0;${col + 1};${row + 1}M\x1b[<0;${col + 1};${row + 1}m`)
+      await vi.waitFor(() => {
+        expect(term.visible().join('\n')).toContain('File preview')
+      })
+      expect(term.visible().join('\n')).not.toContain('[ Quote ]')
+
+      // Transition to writable and reload: Quote action returns dynamically.
+      tui.setInspectedSubagent({ id: 'child-ro', label: 'Explore', phase: 'running', writable: true })
+      press(term, 'r')
+      await vi.waitFor(() => {
+        expect(term.visible().join('\n')).toContain('[ Quote ]')
+      })
+
+      // Navigate into image preview, transition back to read-only, press Q: notice must appear on image preview.
+      const picRow = term.visible().findIndex(line => line.includes('pic'))
+      const picCol = term.visible()[picRow]!.indexOf('pic') + 1
+      press(term, `\x1b[<0;${picCol + 1};${picRow + 1}M\x1b[<0;${picCol + 1};${picRow + 1}m`)
+      await vi.waitFor(() => {
+        expect(term.visible().join('\n')).toContain('pic.png')
+      })
+      tui.setInspectedSubagent({ id: 'child-ro', label: 'Explore', phase: 'completed', writable: false })
+      press(term, 'q')
+      await vi.waitFor(() => {
+        const view = term.visible().join('\n')
+        expect(view).toContain('pic.png')
+        expect(view).toContain('Read-only session; cannot quote to composer.')
+      })
+    } finally {
+      tui.dispose()
+      rmSync(dir, { recursive: true, force: true })
+    }
+  })
+})

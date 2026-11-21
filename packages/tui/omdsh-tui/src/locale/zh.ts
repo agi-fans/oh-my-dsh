@@ -1333,5 +1333,18 @@ export const zh = {
   "Expand": "展开",
   "search": "搜索",
   "The plugin market is not mounted in this profile.": "当前配置未挂载插件市场。",
-  "No plugin index sources are configured. Add one in Settings to browse a market.": "尚未配置插件索引源。请在设置中添加索引源后再浏览市场。"
+  "No plugin index sources are configured. Add one in Settings to browse a market.": "尚未配置插件索引源。请在设置中添加索引源后再浏览市场。",
+  "File preview": "文件预览",
+  "Reload": "刷新",
+  "reload": "刷新",
+  "open": "打开",
+  "editor": "编辑器",
+  "quote": "引用",
+  "source/markdown": "源码/Markdown",
+  "Source": "源码",
+  "Markdown": "Markdown",
+  "Load more": "加载更多",
+  "File not found: {path}": "未找到文件：{path}",
+  "Not a regular file: {path}": "不是普通文件：{path}",
+  "Read-only session; cannot quote to composer.": "当前为只读会话，无法引用到输入框。"
 } as const

@@ -319,6 +319,33 @@ export function sliceCells(text: string, start: number, width: number): string {
   return started ? out + (linked ? '\x1b]8;;\x07' : '') + (styled ? '\x1b[0m' : '') : ''
 }
 
+const OSC8_TARGET_RE = /^\x1b\]8;[^;]*;([^\x07\x1b]*)(?:\x07|\x1b\\)$/u
+
+/** Return the active OSC 8 hyperlink destination at 0-based display `column`, if any. */
+export function hyperlinkAt(text: string, column: number): string | undefined {
+  if (column < 0 || !text.includes('\x1b]8;')) return undefined
+  let cell = 0
+  let target = ''
+  for (const part of splitAnsi(text)) {
+    if (part.ansi) {
+      if (part.value.startsWith('\x1b]8;')) {
+        const match = OSC8_TARGET_RE.exec(part.value)
+        target = match?.[1] ?? ''
+      }
+      continue
+    }
+    for (const { segment: cluster } of segments(part.value)) {
+      const cw = graphemeWidth(cluster)
+      if (cw > 0 && column >= cell && column < cell + cw) {
+        return target === '' ? undefined : target
+      }
+      cell += cw
+      if (cell > column) return undefined
+    }
+  }
+  return undefined
+}
+
 function splitWordsPreservingAnsi(text: string): string[] {
   const words: string[] = []
   let buf = ''

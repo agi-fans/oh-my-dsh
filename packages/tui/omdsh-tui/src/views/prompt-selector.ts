@@ -510,7 +510,7 @@ export function renderImagePreviewPage(state: PromptSelectorState, theme: Theme,
   if (width < 16 || height < 10) return renderPromptSelector({ ...state, request: { ...state.request,
     detail: image.description + '\nEnlarge the terminal or use Open to view the image.' } }, theme, width, '', 0, Math.max(1, height - 8))
   const { lines: actionRows, actions } = documentActionRows(state, theme, width, height)
-  const hints = 'Tab/←→ actions · Enter activate · Esc back'
+  const hints = state.notice ?? 'Tab/←→ actions · Enter activate · Esc back'
   const bodyRows = Math.max(1, height - 8 - actionRows.length)
   const lines = [pageTop(theme, width, state.request.title), pageRow(theme, state.request.question, width),
     pageRow(theme, theme.fg('muted', image.description), width), pageDivider(theme, width)]

@@ -5,7 +5,7 @@ import { promptBrowserState, type PromptBrowserState } from './prompt-browser.ts
 import { browseHelp } from './help-reader.ts'
 import { readReference } from './reference-reader.ts'
 import { FileBrowser } from './file-browser.ts'
-import type { TuiFileReview } from '../definition.ts'
+import type { TuiDocumentPosition, TuiFileReview } from '../definition.ts'
 import { reasoningKey } from '../views/transcript-types.ts'
 /**
  * TUI capability seam — local terminal provider.
@@ -196,8 +196,9 @@ import {
 import { flushPending, normalizeKeyId, parseKeys, type KeyEvent } from '../input/keys.ts'
 import { sanitizeDisplayLine, type Frame, type FoldMark, type TranscriptDisclosure, type RenderSink } from '../chrome/renderer.ts'
 import { blockFileAction, type FileAction } from '../views/file-actions.ts'
-import { fileDocument, reviewFiles } from './file-review.ts'
-import { cursorOnWrapped, indexOnWrapped, stripAnsi } from '../chrome/width.ts'
+import { fileDocument, previewFileLink, resolveExistingFileLink, reviewFiles, type DocumentCommand } from './file-review.ts'
+import { parseLocalFileLink, parseLocalFileLinkCandidates } from '../views/local-file-link.ts'
+import { cursorOnWrapped, hyperlinkAt, indexOnWrapped, stripAnsi } from '../chrome/width.ts'
 import { MainScreenRenderer } from '../chrome/main-screen-renderer.ts'
 import { supportsHyperlinks } from './terminal-probe.ts'
 import { colorDisabledByEnv, createTheme, detectColorDepth, type ColorDepth, type ThemeName } from '../chrome/theme.ts'
@@ -348,6 +349,7 @@ export interface TerminalLike {
 type PendingPrompt = PromptSelectorState & {
   sourceRequest: TuiPrompt
   browserState?: PromptBrowserState
+  onDocumentCommand?: (command: DocumentCommand, position: TuiDocumentPosition | undefined) => boolean
   resolve: (answer: string | null) => void
   offAbort?: () => void
   offTick?: () => void
@@ -649,6 +651,7 @@ export class LocalTui implements TuiService {
   #showFileChanges = true
   #workspaceReview: Parameters<NonNullable<TuiService['setWorkspaceReviewHandler']>>[0] | undefined
   #workspacePress: { row: number; column: number; block: number; source: Block; file?: number } | undefined
+  #linkPress: { row: number; column: number; target: string; text: string; inDocument: boolean } | undefined
   #mouseInteraction: 'auto' | 'tui' | 'native' = 'auto'
   #tmuxMouseEnabled: boolean | undefined
   #disclosurePress: { target: TranscriptDisclosure; row: number; column: number } | undefined
@@ -883,6 +886,7 @@ export class LocalTui implements TuiService {
         this.#mouseActionPress = undefined
         this.#inputPress = undefined
         this.#workspacePress = undefined
+        this.#linkPress = undefined
         this.#jumpPress = undefined
         this.#disclosurePress = undefined
         const repaint = (): void => {
@@ -1150,7 +1154,8 @@ export class LocalTui implements TuiService {
     if (this.#inspected?.id !== inspected?.id) {
       this.#transcriptScopeChanged = true
       this.#workspacePress = undefined
-      this.#fileReviewAbort?.abort()
+      this.#linkPress = undefined
+      this.#abortFileReview()
       this.#closeFileBrowser()
       this.#transcriptSearch = null
       this.#followTail()
@@ -1184,6 +1189,7 @@ export class LocalTui implements TuiService {
     this.#cancelPaste()
     if (!this.#tty || this.#disposed || request.signal.aborted) return
     this.#workspacePress = undefined
+    this.#linkPress = undefined
     this.#flushPasteBurst(true)
     this.#pasteBurst.clear()
     this.#finishPrompt(null)
@@ -1221,6 +1227,7 @@ export class LocalTui implements TuiService {
   openTrajectory(events: readonly SessionEvent[]): boolean {
     if (!this.#tty) return false
     this.#finishPrompt(null)
+    this.#abortFileReview()
     this.#selection.clear()
     this.#trajectoryPress = undefined
     this.#closeFileBrowser()
@@ -1523,13 +1530,14 @@ export class LocalTui implements TuiService {
     return this.#promptWithDocument(request)
   }
 
-  #promptWithDocument(request: TuiPrompt, renderDocument?: PromptSelectorState['renderDocument']): Promise<string | null> {
+  #promptWithDocument(
+    request: TuiPrompt,
+    renderDocument?: PromptSelectorState['renderDocument'],
+    onDocumentCommand?: (command: DocumentCommand, position: TuiDocumentPosition | undefined) => boolean,
+  ): Promise<string | null> {
     const sourceRequest = request
     const browserState = promptBrowserState(request)
     request = localizePrompt(request, resolveUiLanguage(this.#uiLanguage))
-    // Background approvals take the terminal from a user-opened file reader.
-    if (this.#fileReviewAbort !== undefined && request.signal !== this.#fileReviewAbort.signal
-      && request.signal !== this.#fileBrowser?.request.signal) this.#fileReviewAbort.abort()
     if (this.#disposed || request.signal?.aborted === true) return Promise.resolve(null)
     if (this.#prompt !== null) {
       const superseded = this.#prompt.request.onSuperseded
@@ -1537,6 +1545,12 @@ export class LocalTui implements TuiService {
       const input = this.#editor.expandedText
       this.#finishPrompt(null)
       try { superseded(input) } catch (error) { this.notice(error instanceof Error ? error.message : String(error), { level: 'error' }) }
+    }
+    // Background approvals and subsequent prompts cancel any pending unmounted file-link read.
+    const isOwnBrowserPrompt = this.#fileBrowser !== null && request.signal !== undefined
+      && request.signal === this.#fileBrowser.request.signal
+    if (this.#fileReviewAbort !== undefined && request.signal !== this.#fileReviewAbort.signal && !isOwnBrowserPrompt) {
+      this.#abortFileReview()
     }
     this.#cancelPaste()
     this.#flushPasteBurst(true)
@@ -1553,6 +1567,7 @@ export class LocalTui implements TuiService {
     this.#disclosurePress = undefined
     this.#mouseActionPress = undefined
     this.#workspacePress = undefined
+    this.#linkPress = undefined
     this.#jumpPress = undefined
     this.#wheelGesture = IDLE_WHEEL
     const savedInput = this.#editor.snapshot()
@@ -1563,7 +1578,7 @@ export class LocalTui implements TuiService {
     return new Promise((resolve) => {
       const selected = Math.max(0, filteredPromptOptions(request, this.#editor.text).findIndex(option =>
         (option.value ?? option.label) === (browserState?.selected ?? request.initialValue)))
-      const pending: PendingPrompt = { sourceRequest, request, ...(renderDocument === undefined ? {} : { renderDocument }), selected, checked: new Set((request.options ?? []).flatMap((option, index) => request.initialValues?.includes(option.value ?? option.label) ? [index] : [])), resolve, savedInput,
+      const pending: PendingPrompt = { sourceRequest, request, ...(renderDocument === undefined ? {} : { renderDocument }), ...(onDocumentCommand === undefined ? {} : { onDocumentCommand }), selected, checked: new Set((request.options ?? []).flatMap((option, index) => request.initialValues?.includes(option.value ?? option.label) ? [index] : [])), resolve, savedInput,
         ...(browserState === undefined ? {} : { browserState }),
         ...(request.armMs !== undefined && request.armMs > 0 ? { armedUntil: Date.now() + request.armMs } : {}),
         ...(request.documentPosition === undefined ? {} : { documentAnchor: request.documentPosition, documentQuery: request.documentPosition.query,
@@ -1643,8 +1658,9 @@ export class LocalTui implements TuiService {
   ): void {
     if (this.#disposed) return
     this.#workspacePress = undefined
+    this.#linkPress = undefined
     if (reason !== 'refresh') {
-      this.#fileReviewAbort?.abort()
+      this.#abortFileReview()
       this.#closeFileBrowser()
       this.#clearTransientStatus()
     }
@@ -1690,7 +1706,8 @@ export class LocalTui implements TuiService {
     if (info.id !== this.#sessionId) {
       this.#transcriptScopeChanged = true
       this.#workspacePress = undefined
-      this.#fileReviewAbort?.abort()
+      this.#linkPress = undefined
+      this.#abortFileReview()
       this.#closeFileBrowser()
       this.#notificationQueue.clear()
       this.#notifications.reset()
@@ -2093,6 +2110,7 @@ export class LocalTui implements TuiService {
       if (this.#workspaceReview === handler) {
         this.#workspaceReview = undefined
         this.#workspacePress = undefined
+        this.#linkPress = undefined
       }
     }
   }
@@ -2175,7 +2193,7 @@ export class LocalTui implements TuiService {
     this.#disposed = true
     this.#cancelPaste()
     this.#imagePreviewAbort?.abort()
-    this.#fileReviewAbort?.abort()
+    this.#abortFileReview()
     this.#closeFileBrowser()
     this.#asideAbort?.abort()
     for (const directory of this.#imageTemporary) { try { rmSync(directory, { recursive: true, force: true }) } catch { /* OS may still hold the opened file. */ } }
@@ -2260,6 +2278,7 @@ export class LocalTui implements TuiService {
 
   searchTranscript(query: string): void {
     if (!this.#tty || this.#disposed || query.trim() === '') return
+    this.#abortFileReview()
     // Commit the resumed document before moving its live viewport into history.
     this.#render()
     this.#transcriptSearch = { query, editing: false, focus: 0 }
@@ -2579,7 +2598,7 @@ export class LocalTui implements TuiService {
     this.#fileActionFrame = frame.transcript === undefined || frame.transientSurface === 'overlay' ? undefined : frame
     this.#inputFrame = frame.inputRows === undefined ? undefined : frame
     this.#setMouseTracking(this.#inputFrame !== undefined || this.#fileBrowser !== null || this.#trajectory !== null || this.#settings !== null || this.#search !== null || this.#documentMouseEnabled() || frame.promptDocument?.preview !== undefined || this.#promptChoices.length > 0 || this.#promptActions.length > 0 || (frame.transcript !== undefined && frame.transientSurface !== 'overlay'
-      && (this.#inspecting || this.#maxStart > 0 || (frame.transcript.fileRegions?.length ?? 0) > 0 || (frame.transcript.disclosures?.length ?? 0) > 0)))
+      && (this.#inspecting || this.#maxStart > 0 || (frame.transcript.fileRegions?.length ?? 0) > 0 || (frame.transcript.disclosures?.length ?? 0) > 0 || frame.lines.some(line => line.includes('\x1b]8;')))))
     // A run opening or folding reshapes rows above the screen in place; the
     // renderer's frozen boundary is a row index and has to be told, or a fold
     // blanks the screen and a large one replays the transcript into history.
@@ -2626,6 +2645,7 @@ export class LocalTui implements TuiService {
 
   #scrollBy(delta: number): void {
     this.#workspacePress = undefined
+    this.#linkPress = undefined
     this.#promptAnchor = undefined
     if (this.#follow && (delta > 0 || this.#maxStart === 0)) return
     if (delta === 0 && this.#maxStart === 0) return
@@ -2677,8 +2697,9 @@ export class LocalTui implements TuiService {
 
   #scrollPromptDocument(row: number): void {
     if (this.#prompt === null) return
+    const { notice: _droppedNotice, ...rest } = this.#prompt
     this.#prompt = {
-      ...this.#prompt,
+      ...rest,
       documentAnchor: undefined,
       documentTarget: undefined,
       documentScroll: row === Number.POSITIVE_INFINITY ? row : Math.max(0, Math.min(row, this.#promptDocument?.maxStart ?? 0)),
@@ -2690,7 +2711,7 @@ export class LocalTui implements TuiService {
   #setMouseTracking(enabled: boolean): void {
     enabled = enabled && this.#mouseInteraction !== 'native'
       && (this.#mouseInteraction === 'tui' || this.#tmuxMouseEnabled !== false)
-    if (!enabled) { this.#workspacePress = undefined; this.#mouseActionPress = undefined; this.#selection.clear(); this.#jumpPress = undefined; this.#disclosurePress = undefined }
+    if (!enabled) { this.#workspacePress = undefined; this.#linkPress = undefined; this.#mouseActionPress = undefined; this.#selection.clear(); this.#jumpPress = undefined; this.#disclosurePress = undefined }
     if (!this.#tty || enabled === this.#mouseTracking) return
     this.#mouseTracking = enabled
     this.#session.setMode('mouse', MOUSE_TRACKING, enabled)
@@ -2698,6 +2719,7 @@ export class LocalTui implements TuiService {
 
   /** Give every terminal mode back before the terminal is lent out (Ctrl+Z, external editor). */
   #handOffTerminal(): void {
+    if (this.#renderer.alternateActive) this.#renderer.finish()
     this.#setMouseTracking(false)
     this.#releaseTerminalMetadata()
     this.#session.handOff()
@@ -3128,6 +3150,7 @@ export class LocalTui implements TuiService {
       if (event.action === 'release') {
         this.#mouseActionPress = undefined
         this.#workspacePress = undefined
+        this.#linkPress = undefined
         if (event.button === 'left' && !event.shift && target?.key === pressedAction.key && target.row === pressedAction.row && target.column === pressedAction.column) {
           if (target.action === 'copy') void this.#copySelection()
           else if (target.action === 'quote') this.#quoteSelection()
@@ -3151,6 +3174,7 @@ export class LocalTui implements TuiService {
       event.row === target.row && event.column >= target.column && event.column < target.column + target.width
     if (event.button === 'right') {
       this.#workspacePress = undefined
+      this.#linkPress = undefined
       this.#disclosurePress = undefined
       if (event.action === 'press') {
         if (this.#selection.active) void this.#copySelection()
@@ -3174,6 +3198,23 @@ export class LocalTui implements TuiService {
       this.#disclosurePress = disclosure === undefined ? undefined : { target: disclosure, row: event.row, column: event.column }
       const target = this.#jumpToLatest
       this.#jumpPress = target !== undefined && inside(target) ? target : undefined
+      const canClickLink = !event.shift
+        && this.#workspacePress === undefined
+        && this.#disclosurePress === undefined
+        && this.#jumpPress === undefined
+        && ((this.#prompt === null && this.#settings === null && this.#search === null && this.#transcriptSearch === null)
+          || (this.#prompt?.onDocumentCommand !== undefined && this.#prompt.request.documentSource === undefined
+            && this.#prompt.request.documentImage === undefined && this.#prompt.feedback !== true && this.#prompt.documentInput === undefined))
+      if (canClickLink) {
+        const rowText = this.#renderer.viewport()[event.row] ?? ''
+        const href = hyperlinkAt(rowText, event.column)
+        const inDocument = this.#prompt !== null
+        this.#linkPress = href !== undefined && (inDocument || parseLocalFileLink(href, this.#cwd) !== undefined)
+          ? { row: event.row, column: event.column, target: href, text: stripAnsi(rowText), inDocument }
+          : undefined
+      } else {
+        this.#linkPress = undefined
+      }
       if (this.#jumpPress !== undefined) this.#selection.clear()
       else this.#selection.begin(this.#renderer.viewport(), event, Date.now(), event.shift)
     } else if (this.#jumpPress !== undefined) {
@@ -3187,6 +3228,8 @@ export class LocalTui implements TuiService {
     } else if (event.action === 'drag') {
       const pressed = this.#workspacePress
       if (pressed !== undefined && (event.shift || event.row !== pressed.row || Math.abs(event.column - pressed.column) > 1)) this.#workspacePress = undefined
+      const linkPress = this.#linkPress
+      if (linkPress !== undefined && (event.shift || event.row !== linkPress.row || event.column !== linkPress.column)) this.#linkPress = undefined
       // Motion confined to the empty gutter is click jitter. Once it leaves,
       // selection owns the gesture even if the pointer returns to the arrow.
       if (event.shift || this.#pressedDisclosureAt(event.row, event.column) === undefined) {
@@ -3196,6 +3239,8 @@ export class LocalTui implements TuiService {
     } else {
       const pressed = this.#workspacePress
       this.#workspacePress = undefined
+      const linkPress = this.#linkPress
+      this.#linkPress = undefined
       const region = pressed === undefined ? undefined : this.#fileRegionAt(event.row)
       if (!event.shift && pressed !== undefined && event.row === pressed.row && Math.abs(event.column - pressed.column) <= 1
         && region?.block === pressed.block && region.file === pressed.file && this.#state.blocks[pressed.block] === pressed.source) {
@@ -3209,6 +3254,25 @@ export class LocalTui implements TuiService {
         this.#selection.clear()
         this.#activateDisclosure(target)
         return
+      }
+      if (!event.shift && linkPress !== undefined && event.row === linkPress.row && event.column === linkPress.column) {
+        const rowText = this.#renderer.viewport()[event.row] ?? ''
+        if (stripAnsi(rowText) === linkPress.text && hyperlinkAt(rowText, event.column) === linkPress.target) {
+          if (linkPress.inDocument) {
+            if (this.#prompt?.onDocumentCommand?.({ type: 'link', target: linkPress.target }, this.#promptDocument?.position) === true) {
+              const hadSelection = this.#selection.active
+              this.#selection.clear()
+              if (hadSelection) this.#render()
+              return
+            }
+          } else {
+            const hadSelection = this.#selection.active
+            this.#selection.clear()
+            if (hadSelection) this.#render()
+            this.#openFileLink(linkPress.target)
+            return
+          }
+        }
       }
       const text = this.#selection.release(event)
       if (text !== undefined && this.#copyOnSelect) void this.#copySelection()
@@ -3384,12 +3448,122 @@ export class LocalTui implements TuiService {
       prompt: (request: TuiPrompt) => this.prompt({ ...request, onSuperseded: () => { abort.abort() } }),
       notice: (text: string, options: TuiNoticeOptions) => { this.notice(text, options) },
       openFileInEditor: (path: string) => { this.openFileInEditor(path) },
-      insertText: (text: string) => { this.insertText(text) },
+      ...(this.#inspected?.writable === false ? {} : { insertText: (text: string) => { this.insertText(text) } }),
     }
     void reviewFiles(surface, action.title, action.cwd, action.files,
       index => fileDocument(action.files[index]!.path, abort.signal), abort.signal,
       initial ?? (action.files.length === 1 ? 0 : undefined), false)
       .catch(error => { if (!abort.signal.aborted && !this.#disposed) this.notice(`Could not preview file: ${error instanceof Error ? error.message : String(error)}`, { level: 'error' }) })
+      .finally(() => { if (this.#fileReviewAbort === abort) this.#fileReviewAbort = undefined })
+  }
+
+  #updatePromptDocument(signal: AbortSignal, request: TuiPrompt, notice?: string): void {
+    if (this.#disposed || this.#prompt === null || this.#prompt.sourceRequest.signal !== signal) return
+    const localized = localizePrompt(request, resolveUiLanguage(this.#uiLanguage))
+    if (this.#tty && localized.documentImage !== undefined && this.#imageProtocol !== undefined) this.#term.output.write('\x1b[16t')
+    this.#selection.clear()
+    this.#linkPress = undefined
+    this.#promptActionPress = undefined
+    this.#promptChoicePress = undefined
+    const {
+      notice: _droppedNotice,
+      documentInput: _droppedInput,
+      documentError: _droppedError,
+      documentTarget: _droppedTarget,
+      documentScroll: _droppedScroll,
+      documentAnchor: _droppedAnchor,
+      documentQuery: _droppedQuery,
+      documentWordWrap: _droppedWrap,
+      documentColumn: _droppedColumn,
+      ...rest
+    } = this.#prompt
+    this.#prompt = {
+      ...rest,
+      sourceRequest: request,
+      request: localized,
+      selected: 0,
+      ...(request.documentPosition === undefined ? {} : {
+        documentAnchor: request.documentPosition,
+        documentQuery: request.documentPosition.query,
+        ...(request.documentPosition.wordWrap === undefined ? {} : { documentWordWrap: request.documentPosition.wordWrap }),
+        ...(request.documentPosition.column === undefined ? {} : { documentColumn: request.documentPosition.column }),
+      }),
+      ...(request.documentTail === true && request.documentPosition?.following !== false ? { documentScroll: Number.POSITIVE_INFINITY } : {}),
+      ...(notice === undefined ? {} : { notice }),
+    }
+    this.#render()
+  }
+
+  #setPromptNotice(signal: AbortSignal, notice: string | undefined): void {
+    if (this.#disposed || this.#prompt === null || this.#prompt.sourceRequest.signal !== signal) return
+    const { notice: _droppedNotice, ...rest } = this.#prompt
+    this.#prompt = notice === undefined ? rest : { ...rest, notice }
+    this.#render()
+  }
+
+  #abortFileReview(): boolean {
+    const abort = this.#fileReviewAbort
+    if (abort === undefined) return false
+    this.#fileReviewAbort = undefined
+    abort.abort()
+    return true
+  }
+
+  #hasBlockingSurface(): boolean {
+    return this.#prompt !== null || this.#settings !== null || this.#search !== null
+      || this.#transcriptSearch !== null || this.#trajectory !== null || this.#fileBrowser !== null
+  }
+
+  #openFileLink(target: string): void {
+    if (!this.#tty || this.#disposed || this.#hasBlockingSurface() || this.#fileReviewAbort !== undefined) return
+    const repoRoot = resolveProjectContext(this.#cwd).root
+    const fallbackRoot = repoRoot !== this.#cwd ? repoRoot : this.#projectRoot
+    const candidates = parseLocalFileLinkCandidates(target, [this.#cwd, this.#projectRoot, repoRoot])
+    if (candidates.length === 0) return
+    const abort = new AbortController()
+    this.#fileReviewAbort = abort
+    this.#selection.clear()
+    const translate = (key: string, params?: Record<string, string | number>): string =>
+      uiText(resolveUiLanguage(this.#uiLanguage), key, params)
+    const surface = {
+      prompt: (request: TuiPrompt, onDocumentCommand?: (command: DocumentCommand, position: TuiDocumentPosition | undefined) => boolean) => {
+        if (this.#hasBlockingSurface()) {
+          abort.abort()
+          return Promise.resolve(null)
+        }
+        return this.#promptWithDocument({ ...request, onSuperseded: () => { abort.abort() } }, undefined, onDocumentCommand)
+      },
+      updatePrompt: (request: TuiPrompt, notice?: string) => {
+        this.#updatePromptDocument(abort.signal, { ...request, onSuperseded: () => { abort.abort() } }, notice)
+      },
+      setPromptNotice: (notice: string | undefined) => {
+        this.#setPromptNotice(abort.signal, notice)
+      },
+      canQuote: () => this.#inspected?.writable !== false,
+      translate,
+      notice: (text: string, options?: TuiNoticeOptions) => { this.notice(text, options) },
+      status: (text: string) => { this.#showTransientStatus(text, 4_000) },
+      openFileInEditor: (path: string) => { this.openFileInEditor(path) },
+      insertText: (text: string) => { this.insertText(text) },
+    }
+    void (async () => {
+      const resolved = await resolveExistingFileLink(candidates, abort.signal)
+      if (abort.signal.aborted || this.#disposed || this.#hasBlockingSurface()) return
+      if (resolved.status === 'not-found') {
+        this.#showTransientStatus(translate('File not found: {path}', { path: resolved.label }), 4_000)
+        return
+      }
+      if (resolved.status === 'not-file') {
+        this.#showTransientStatus(translate('Not a regular file: {path}', { path: resolved.label }), 4_000)
+        return
+      }
+      if (resolved.status === 'error') {
+        this.#showTransientStatus(`Could not preview file: ${resolved.message}`, 4_000)
+        return
+      }
+      await previewFileLink(surface, this.#cwd, resolved.link, abort.signal, fallbackRoot)
+    })()
+      .catch(error => { if (!abort.signal.aborted && !this.#disposed) this.#showTransientStatus(`Could not preview file: ${error instanceof Error ? error.message : String(error)}`, 4_000) })
       .finally(() => { if (this.#fileReviewAbort === abort) this.#fileReviewAbort = undefined })
   }
 
@@ -3423,6 +3597,7 @@ export class LocalTui implements TuiService {
     this.#disclosurePress = undefined
     this.#mouseActionPress = undefined
     this.#workspacePress = undefined
+    this.#linkPress = undefined
     this.#inputPress = undefined
     if (this.#keyTest !== undefined && this.#prompt?.request.signal === this.#keyTest.signal
       && (event.type === 'text' || event.type === 'paste-start' || event.type === 'paste-end' || event.type === 'key' && !['escape', 'ctrl+c'].includes(event.id))) {
@@ -3440,6 +3615,7 @@ export class LocalTui implements TuiService {
       this.#render()
       if (event.type === 'key' && event.id === 'escape') {
         this.#lastEscapeTime = 0
+        if (this.#prompt === null) this.#abortFileReview()
         return
       }
     }
@@ -3524,6 +3700,7 @@ export class LocalTui implements TuiService {
       this.#lastEscapeTime = 0
       this.#inspectEscapeFenceUntil = 0
     } else if (this.#inspected === undefined && Date.now() < this.#inspectEscapeFenceUntil) {
+      if (this.#prompt === null) this.#abortFileReview()
       return
     } else if (this.#inspected === undefined) {
       this.#inspectEscapeFenceUntil = 0
@@ -3578,15 +3755,22 @@ export class LocalTui implements TuiService {
     }
     if (this.#aside !== undefined && event.type === 'key' && event.id === 'escape'
       && this.#editor.text === '' && this.#ac === null) {
+      if (this.#prompt === null) this.#abortFileReview()
       this.#closeAside()
       return
     }
 
     if (this.#handleAutocomplete(event)) {
-      if (event.type === 'key' && event.id === 'escape') this.#lastEscapeTime = 0
+      if (event.type === 'key' && event.id === 'escape') {
+        this.#lastEscapeTime = 0
+        if (this.#prompt === null) this.#abortFileReview()
+      }
       return
     }
-    if (this.#handleSubagentLauncher(event)) return
+    if (this.#handleSubagentLauncher(event)) {
+      if (event.type === 'key' && event.id === 'escape' && this.#prompt === null) this.#abortFileReview()
+      return
+    }
     // Escape is the one key that gives back exactly one layer, so it is resolved
     // here — after the overlays and the autocomplete have had their turn — and
     // not with the other actions above.
@@ -3646,6 +3830,7 @@ export class LocalTui implements TuiService {
       if (handled !== true && this.#state.status !== 'idle') for (const listener of this.#interrupts) listener()
       return true
     }
+    if (this.#abortFileReview()) return true
     // Escaping a child transcript returns to the parent, and a writable child
     // with a draft clears it first — the same order the reader expects from
     // any other depth.
@@ -3687,6 +3872,7 @@ export class LocalTui implements TuiService {
   /** Clear a draft or interrupt work before offering an idle exit. */
   #runClearComposer(confirmsExit: boolean): boolean {
     if (this.#prompt !== null) { this.#finishPrompt(null); this.#editor.setText(''); this.#render(); return true }
+    if (this.#abortFileReview()) return true
     // A running Shell line owns Ctrl+C before the composer does: the reader is
     // watching a command, and the key they press to stop it is the same one.
     if (this.#inspected === undefined && this.#shellAbort !== undefined && !this.#hasComposerContent()) {
@@ -3895,7 +4081,12 @@ export class LocalTui implements TuiService {
     if (document && prompt.request.documentSource === undefined && this.#handleRenderedDocument(event, prompt)) return true
     if (document && event.type === 'text') {
       const action = prompt.request.actions?.find(item => item.key.toLowerCase() === event.value.toLowerCase())
-      if (action !== undefined && !disarmed) { this.#finishPrompt(action.valuePrefix); this.#render() }
+      if (action !== undefined && !disarmed) {
+        if (prompt.onDocumentCommand?.({ type: 'action', value: action.valuePrefix }, this.#promptDocument?.position) !== true) {
+          this.#finishPrompt(action.valuePrefix)
+          this.#render()
+        }
+      }
       return true
     }
     if (!document && prompt.request.allowCustom !== false && event.type === 'key' && (event.id === 'ctrl+x' || this.#boundAction(event.id) === 'external-editor')) {
@@ -3939,6 +4130,9 @@ export class LocalTui implements TuiService {
       return true
     }
     if (event.id === 'escape' || event.id === 'ctrl+c') {
+      if (event.id === 'escape' && prompt.onDocumentCommand?.({ type: 'escape' }, this.#promptDocument?.position) === true) {
+        return true
+      }
       this.#finishPrompt(null)
       this.#render()
       return true
@@ -3969,6 +4163,9 @@ export class LocalTui implements TuiService {
       if (disarmed) return true
       const answer = selectedPromptAnswer(prompt)
       if (answer === null) return true
+      if (document && prompt.onDocumentCommand?.({ type: 'action', value: answer }, this.#promptDocument?.position) === true) {
+        return true
+      }
       const approve = prompt.request.approveValue ?? prompt.request.options?.[0]?.value
         ?? prompt.request.options?.[0]?.label
       if (document || answer === approve || prompt.request.allowCustom === false) {
@@ -4208,6 +4405,7 @@ export class LocalTui implements TuiService {
     const version = options.persist ? ++this.#prefsVersion : this.#prefsVersion
     const previousMotion = this.#motion
     this.#workspacePress = undefined
+    this.#linkPress = undefined
     this.#uiLanguage = prefs.uiLanguage ?? 'auto'
     if (this.#prompt !== null) this.#prompt = { ...this.#prompt, request: localizePrompt(this.#prompt.sourceRequest, resolveUiLanguage(this.#uiLanguage)) }
     this.#themeName = prefs.theme
@@ -5061,6 +5259,7 @@ export class LocalTui implements TuiService {
     this.#prompt = null
     this.#promptActionPress = undefined
     this.#promptChoicePress = undefined
+    this.#linkPress = undefined
     this.#selection.clear()
     this.#wheelGesture = IDLE_WHEEL
     if (pending.request.notify !== false) {
@@ -5196,6 +5395,7 @@ export class LocalTui implements TuiService {
       this.#render()
       return
     }
+    this.#abortFileReview()
     this.#search = null
     this.#ac = null
     this.#cancelPaste()
@@ -5550,6 +5750,7 @@ export class LocalTui implements TuiService {
     }
     if (action === 'search-history') {
       if (this.#images.count > 0) return false
+      this.#abortFileReview()
       this.#search = createHistorySearch(this.#history)
       this.#ac = null
       this.#render()
@@ -5559,6 +5760,7 @@ export class LocalTui implements TuiService {
       // An empty composer has no forward-char target, so Ctrl+F searches the
       // transcript there; a non-empty draft keeps the editor's own binding.
       if (key === 'ctrl+f' && this.#hasComposerContent()) return false
+      this.#abortFileReview()
       this.#transcriptSearch = createTranscriptSearch()
       this.#ac = null
       this.#render()

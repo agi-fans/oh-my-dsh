@@ -2,12 +2,13 @@
 
 import { execFile } from 'node:child_process'
 import { open, stat } from 'node:fs/promises'
-import { extname, relative, resolve } from 'node:path'
+import { dirname, extname, relative, resolve } from 'node:path'
 import { promisify } from 'node:util'
 import { StringDecoder } from 'node:string_decoder'
-import type { TuiDocumentPosition, TuiDocumentSource, TuiService, TuiReviewFile } from '../definition.ts'
+import type { TuiDocumentPosition, TuiDocumentSource, TuiService, TuiReviewFile, TuiPrompt } from '../definition.ts'
 import { stripAnsi } from '../chrome/width.ts'
 import { documentModel } from '../views/document-reader.ts'
+import { parseLocalFileLinkCandidates, type LocalFileLink } from '../views/local-file-link.ts'
 import { openSystemFile } from './file-open.ts'
 import { imageFile, imageMediaType } from './image-preview.ts'
 import type { PreviewImage } from '../chrome/terminal-images.ts'
@@ -260,4 +261,360 @@ export async function reviewFiles(tui: FileReviewSurface, title: string, cwd: st
       }
     }
   }
+}
+
+export type DocumentCommand =
+  | { type: 'action'; value: string }
+  | { type: 'link'; target: string }
+  | { type: 'escape' }
+
+export interface FileLinkPreviewSurface {
+  prompt(
+    request: TuiPrompt,
+    onDocumentCommand?: (command: DocumentCommand, position: TuiDocumentPosition | undefined) => boolean,
+  ): Promise<string | null>
+  updatePrompt?(request: TuiPrompt, notice?: string): void
+  setPromptNotice?(notice: string | undefined): void
+  canQuote?: () => boolean
+  translate?(key: string, params?: Record<string, string | number>): string
+  notice: TuiService['notice']
+  status?: (text: string) => void
+  openFileInEditor?: TuiService['openFileInEditor']
+  insertText?: TuiService['insertText']
+}
+
+function isMarkdownPath(path: string): boolean {
+  const ext = extname(path).toLowerCase()
+  return ext === '.md' || ext === '.markdown'
+}
+
+export async function resolveExistingFileLink(
+  candidates: readonly LocalFileLink[],
+  signal?: AbortSignal,
+): Promise<{ status: 'ok'; link: LocalFileLink } | { status: 'not-found'; label: string } | { status: 'not-file'; label: string } | { status: 'error'; message: string }> {
+  let nonFile: string | undefined
+  let firstError: string | undefined
+  for (const candidate of candidates) {
+    if (signal?.aborted === true) return { status: 'not-found', label: candidate.label }
+    try {
+      const info = await stat(candidate.path)
+      if (info.isFile()) return { status: 'ok', link: candidate }
+      nonFile ??= candidate.label
+    } catch (error) {
+      const code = (error as NodeJS.ErrnoException).code
+      if (code !== 'ENOENT' && code !== 'ENOTDIR') {
+        firstError ??= error instanceof Error ? error.message : String(error)
+      }
+    }
+  }
+  if (nonFile !== undefined) return { status: 'not-file', label: nonFile }
+  if (firstError !== undefined) return { status: 'error', message: firstError }
+  return { status: 'not-found', label: candidates[0]?.label ?? '' }
+}
+
+interface PreviewFrame {
+  readonly link: LocalFileLink
+  mode: 'source' | 'markdown'
+  limit: number
+  positions: Partial<Record<'source' | 'markdown', TuiDocumentPosition>>
+  source?: TuiDocumentSource | undefined
+  image?: PreviewImage | undefined
+  imageLoaded?: boolean
+}
+
+/**
+ * Preview a clicked local file link in the document reader with line jump,
+ * Markdown/Source toggle, in-place reload, and relative-link navigation with a
+ * back stack. Keeps the reader overlay active across reloads and link jumps so
+ * focus never leaks back to the main screen during async file I/O.
+ */
+export async function previewFileLink(
+  tui: FileLinkPreviewSurface,
+  cwd: string,
+  initial: LocalFileLink,
+  signal: AbortSignal,
+  projectRoot?: string,
+): Promise<void> {
+  const t = (key: string, params?: Record<string, string | number>): string => {
+    if (tui.translate !== undefined) return tui.translate(key, params)
+    return params === undefined ? key : key.replace(/\{(\w+)\}/gu, (_m, name: string) => String(params[name] ?? ''))
+  }
+  const createFrame = (link: LocalFileLink): PreviewFrame => ({
+    link,
+    mode: isMarkdownPath(link.path) && link.line === undefined ? 'markdown' : 'source',
+    limit: PREVIEW_BYTES,
+    positions: {},
+  })
+  const stack: PreviewFrame[] = [createFrame(initial)]
+
+  const loadFrame = async (
+    frame: PreviewFrame,
+    depth: number,
+    loadSignal: AbortSignal,
+    options: { forceReload?: boolean; mode?: 'source' | 'markdown'; limit?: number } = {},
+  ): Promise<{ request: TuiPrompt; notice?: string; mode: 'source' | 'markdown'; limit: number; source?: TuiDocumentSource | undefined; image?: PreviewImage | undefined; imageLoaded?: boolean }> => {
+    const markdown = isMarkdownPath(frame.link.path)
+    const mode = options.mode ?? frame.mode
+    let limit = options.limit ?? frame.limit
+    let detail = ''
+    let source: TuiDocumentSource | undefined
+    let loaded: FileDocument | undefined
+    let image: PreviewImage | undefined
+    let imageLoaded = frame.imageLoaded === true
+    let notice: string | undefined
+    try {
+      if (imageMediaType(frame.link.path) !== undefined) {
+        if (options.forceReload === true || !imageLoaded) {
+          image = await imageFile(frame.link.path, loadSignal)
+          imageLoaded = true
+        } else {
+          image = frame.image
+        }
+      }
+      if (image === undefined) {
+        loaded = await fileDocument(frame.link.path, loadSignal, limit)
+        if (loaded.binary !== true && frame.link.line !== undefined && frame.positions[mode] === undefined) {
+          while (loaded.truncated === true && loaded.text.split('\n').length <= frame.link.line && limit < MAX_PREVIEW_BYTES) {
+            limit = Math.min(MAX_PREVIEW_BYTES, limit * 2)
+            loaded = await fileDocument(frame.link.path, loadSignal, limit)
+          }
+          if (loaded.binary !== true && loaded.text.split('\n').length < frame.link.line) {
+            notice = `Line ${frame.link.line} is outside this preview. The file may have changed; Open reads the original.`
+          }
+        }
+        if (loaded.binary === true) detail = loaded.text
+        else if (mode === 'markdown') detail = loaded.text
+        else source = loaded
+      }
+    } catch (error) {
+      if (loadSignal.aborted) throw error
+      detail = error instanceof Error ? error.message : String(error)
+    }
+
+    const canGoBack = depth > 1
+    const canToggleMarkdown = markdown && loaded !== undefined && loaded.binary !== true && image === undefined
+    const canLoadMore = loaded?.truncated === true && limit < MAX_PREVIEW_BYTES
+    const quoteAvailable = tui.insertText !== undefined && tui.canQuote?.() !== false
+    const optionsList = [
+      ...(canGoBack ? [{ label: 'Back', value: 'back' }] : [{ label: 'Close', value: 'close' }]),
+      { label: 'Open', value: 'open' },
+      ...(tui.openFileInEditor === undefined ? [] : [{ label: 'Editor', value: 'editor' }]),
+      ...(quoteAvailable ? [{ label: 'Quote', value: 'quote' }] : []),
+      ...(canToggleMarkdown ? [{ label: mode === 'markdown' ? 'Source' : 'Markdown', value: 'markdown' }] : []),
+      { label: 'Reload', value: 'reload' },
+      ...(canLoadMore ? [{ label: 'Load more', value: 'more' }] : []),
+    ]
+    const actions = [
+      ...(canGoBack ? [{ key: 'b', label: 'back', valuePrefix: 'back' }] : []),
+      { key: 'o', label: 'open', valuePrefix: 'open' },
+      ...(tui.openFileInEditor === undefined ? [] : [{ key: 'e', label: 'editor', valuePrefix: 'editor' }]),
+      ...(quoteAvailable ? [{ key: 'q', label: 'quote', valuePrefix: 'quote' }] : []),
+      ...(canToggleMarkdown ? [{ key: 'm', label: 'source/markdown', valuePrefix: 'markdown' }] : []),
+      { key: 'r', label: 'reload', valuePrefix: 'reload' },
+      ...(canLoadMore ? [{ key: 'l', label: 'load more', valuePrefix: 'more' }] : []),
+    ]
+    const position = frame.positions[mode] ?? (frame.link.line !== undefined && source !== undefined
+      ? { row: Math.max(0, frame.link.line - (source.firstLine ?? 1)), wrap: 0, query: '' }
+      : undefined)
+    const question = frame.link.line === undefined ? frame.link.label : `${frame.link.label}:${frame.link.line}`
+    const title = canGoBack ? `File preview · ${depth}` : 'File preview'
+    const request: TuiPrompt = {
+      localize: ['title', 'options', 'actions'],
+      title,
+      question,
+      detail,
+      ...(image === undefined ? {} : { documentImage: image }),
+      ...(source === undefined ? {} : { documentSource: source }),
+      ...(position === undefined ? {} : { documentPosition: position }),
+      onDocumentPosition: nextPos => { frame.positions[frame.mode] = nextPos },
+      presentation: 'document',
+      options: optionsList,
+      actions,
+      allowCustom: false,
+      signal,
+      notify: false,
+    }
+    return { request, mode, limit, source, image, imageLoaded, ...(notice === undefined ? {} : { notice }) }
+  }
+
+  const commitFrame = (frame: PreviewFrame, loaded: Awaited<ReturnType<typeof loadFrame>>): void => {
+    frame.mode = loaded.mode
+    frame.limit = loaded.limit
+    frame.source = loaded.source
+    frame.image = loaded.image
+    frame.imageLoaded = loaded.imageLoaded === true
+  }
+
+  let initialLoaded: Awaited<ReturnType<typeof loadFrame>>
+  try {
+    initialLoaded = await loadFrame(stack[0]!, 1, signal)
+  } catch (error) {
+    if (signal.aborted) return
+    throw error
+  }
+  if (signal.aborted) return
+  commitFrame(stack[0]!, initialLoaded)
+
+  let closed = false
+  let inFlight: AbortController | undefined
+  const startTask = (run: (taskSignal: AbortSignal) => Promise<void>): void => {
+    inFlight?.abort()
+    const controller = new AbortController()
+    inFlight = controller
+    const onOuterAbort = (): void => { controller.abort() }
+    signal.addEventListener('abort', onOuterAbort, { once: true })
+    void run(controller.signal)
+      .catch(error => {
+        if (closed || controller.signal.aborted || signal.aborted) return
+        const message = error instanceof Error ? error.message : String(error)
+        tui.setPromptNotice?.(stripAnsi(message).replace(/[\u0000-\u001f\u007f]+/gu, ' '))
+      })
+      .finally(() => {
+        signal.removeEventListener('abort', onOuterAbort)
+        if (inFlight === controller) inFlight = undefined
+      })
+  }
+
+  const navigateBack = (): boolean => {
+    if (stack.length <= 1) {
+      inFlight?.abort()
+      return false
+    }
+    const targetDepth = stack.length - 1
+    const previous = stack[targetDepth - 1]!
+    startTask(async taskSignal => {
+      const next = await loadFrame(previous, targetDepth, taskSignal)
+      if (closed || taskSignal.aborted) return
+      // Keep the displayed frame at stack top until the previous document is
+      // ready to paint, so Q/O/E during an in-flight load still target what is visible.
+      stack.length = targetDepth
+      commitFrame(previous, next)
+      tui.updatePrompt?.(next.request, next.notice)
+    })
+    return true
+  }
+
+  const onDocumentCommand = (command: DocumentCommand, currentPosition: TuiDocumentPosition | undefined): boolean => {
+    const current = stack[stack.length - 1]
+    if (current === undefined) return false
+    if (currentPosition !== undefined) current.positions[current.mode] = currentPosition
+
+    if (command.type === 'escape') return navigateBack()
+
+    if (command.type === 'link') {
+      if (current.mode !== 'markdown' || current.image !== undefined) return false
+      const candidates = parseLocalFileLinkCandidates(command.target, [dirname(current.link.path), cwd, projectRoot])
+      if (candidates.length === 0) return false
+      startTask(async taskSignal => {
+        const resolved = await resolveExistingFileLink(candidates, taskSignal)
+        if (closed || taskSignal.aborted) return
+        if (resolved.status === 'not-found') {
+          tui.setPromptNotice?.(t('File not found: {path}', { path: resolved.label }))
+          return
+        }
+        if (resolved.status === 'not-file') {
+          tui.setPromptNotice?.(t('Not a regular file: {path}', { path: resolved.label }))
+          return
+        }
+        if (resolved.status === 'error') {
+          tui.setPromptNotice?.(resolved.message)
+          return
+        }
+        const nextFrame = createFrame(resolved.link)
+        const next = await loadFrame(nextFrame, stack.length + 1, taskSignal)
+        if (closed || taskSignal.aborted) return
+        commitFrame(nextFrame, next)
+        stack.push(nextFrame)
+        tui.updatePrompt?.(next.request, next.notice)
+      })
+      return true
+    }
+
+    const action = command.value
+    if (action === 'close') {
+      inFlight?.abort()
+      return false
+    }
+    if (action === 'quote') {
+      if (tui.insertText === undefined || tui.canQuote?.() === false) {
+        tui.setPromptNotice?.(t('Read-only session; cannot quote to composer.'))
+        return true
+      }
+      inFlight?.abort()
+      return false
+    }
+    if (action === 'back') return navigateBack()
+    if (action === 'markdown') {
+      const nextMode = current.mode === 'markdown' ? 'source' : 'markdown'
+      startTask(async taskSignal => {
+        const next = await loadFrame(current, stack.length, taskSignal, { mode: nextMode })
+        if (closed || taskSignal.aborted) return
+        commitFrame(current, next)
+        tui.updatePrompt?.(next.request, next.notice)
+      })
+      return true
+    }
+    if (action === 'reload') {
+      startTask(async taskSignal => {
+        const next = await loadFrame(current, stack.length, taskSignal, { forceReload: true })
+        if (closed || taskSignal.aborted) return
+        commitFrame(current, next)
+        tui.updatePrompt?.(next.request, next.notice)
+      })
+      return true
+    }
+    if (action === 'more') {
+      const nextLimit = Math.min(MAX_PREVIEW_BYTES, current.limit * 2)
+      startTask(async taskSignal => {
+        const next = await loadFrame(current, stack.length, taskSignal, { limit: nextLimit })
+        if (closed || taskSignal.aborted) return
+        commitFrame(current, next)
+        tui.updatePrompt?.(next.request, next.notice)
+      })
+      return true
+    }
+    if (action === 'editor') {
+      try {
+        tui.openFileInEditor?.(current.link.path)
+        tui.setPromptNotice?.('Editor command completed.')
+      } catch (error) {
+        const message = error instanceof Error ? error.message : String(error)
+        tui.setPromptNotice?.('Action failed: ' + stripAnsi(message).replace(/[\u0000-\u001f\u007f]+/gu, ' '))
+      }
+      return true
+    }
+    if (action === 'open') {
+      startTask(async taskSignal => {
+        try {
+          await openSystemFile(current.link.path, taskSignal)
+          if (!closed && !taskSignal.aborted) tui.setPromptNotice?.('Opened in the default application.')
+        } catch (error) {
+          if (closed || taskSignal.aborted) return
+          const message = error instanceof Error ? error.message : String(error)
+          tui.setPromptNotice?.('Action failed: ' + stripAnsi(message).replace(/[\u0000-\u001f\u007f]+/gu, ' '))
+        }
+      })
+      return true
+    }
+    return false
+  }
+
+  const promptPromise = tui.prompt(initialLoaded.request, onDocumentCommand)
+  if (initialLoaded.notice !== undefined) tui.setPromptNotice?.(initialLoaded.notice)
+  const answer = await promptPromise
+  closed = true
+  inFlight?.abort()
+
+  if (signal.aborted || answer !== 'quote') return
+  const current = stack[stack.length - 1]
+  if (current === undefined || tui.insertText === undefined || tui.canQuote?.() === false) return
+  const reviewFile: ReviewFile = {
+    path: current.link.path,
+    label: current.link.label,
+    ...(current.link.line === undefined ? {} : { line: current.link.line }),
+  }
+  const ref = formatQuoteReference(cwd, reviewFile, current.source, current.positions[current.mode])
+  tui.insertText(ref)
+  if (tui.status !== undefined) tui.status(`Quoted ${ref} in composer.`)
+  else tui.notice(`Quoted ${ref} in composer.`)
 }

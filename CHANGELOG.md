@@ -6,6 +6,10 @@ The format is based on [Keep a Changelog], and this project adheres to [Semantic
 
 ## [Unreleased]
 
+### Added
+
+- Clicking local file links (including relative paths, `~/...`, `file://` URIs, and `#L…` / `:line` locators) in Markdown replies now opens the built-in full-screen file/image previewer at the referenced line without disturbing native scrollback; rendered Markdown previews also support clicking relative links with a back stack and `R` to reload.
+
 ### Fixed
 
 - Closed active SGR attributes (`underline`, `strike`, `inverse`, `bold`/`dim`, `italic`, foreground, and background) at wrapped line breaks in `restabilizeWrapSegments` so wrapped Markdown links and styled spans no longer bleed underlines or styling into trailing row padding or the next line's leading indentation.

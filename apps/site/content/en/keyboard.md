@@ -71,7 +71,7 @@ You do not need to memorize everything—these ten cover 90% of daily use:
 
 - **Scroll and expand:** Use the scroll wheel in the transcript, `/settings`, history search, `/diff`, and `/trajectory`. Click disclosure arrows on thinking/tool rows to toggle them, or click `Changed` file summaries to open `/diff`.
 - **Select and copy:** With in-app mouse handling (`Auto` or `On`), dragging selects text and copies on release (double-click word, triple-click line, `Shift`-click extend) and surfaces `[Copy]` / `[Quote]` buttons below the input box. Disable `Copy on select` in settings to copy manually with `Alt+C`, `Enter`, or right-click.
-- **Right-click preview:** Without a text selection, right-clicking a tool card or `Changed` file row previews the file directly.
+- **Click or right-click file preview:** With colors enabled (OSC 8 hyperlinks) and in-app mouse handling (`Auto` or `On`), click any local file link in a Markdown reply (including `#L…` or `:line` locators) to open the built-in file or image preview at that line. Inside the preview, click relative links in rendered Markdown to follow them, press `M` to toggle Markdown/Source, `R` to reload, `B` to return to the previous previewed file, and `Esc` to go back or close. Without a text selection, right-clicking a tool card or `Changed` file row also previews its files directly.
 - **Native terminal mouse:** Hold `Shift` while dragging for native selection, or set `/settings` → **`Terminal` → `Mouse interaction`** to **`Off`** (`native`).
 
 ## Session and model shortcuts

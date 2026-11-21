@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { cursorOnWrapped, expandTabs, indexOnWrapped, padToWidth, restabilizeWrapSegments, sliceCells, stripAnsi, truncateToWidth, visibleWidth, wrapCode, wrapIndexed, wrapText, wrapTextStable } from './width.ts'
+import { cursorOnWrapped, expandTabs, hyperlinkAt, indexOnWrapped, padToWidth, restabilizeWrapSegments, sliceCells, stripAnsi, truncateToWidth, visibleWidth, wrapCode, wrapIndexed, wrapText, wrapTextStable } from './width.ts'
 import { oracleWidth } from './width.oracle.ts'
 
 describe('horizontal cell cropping', () => {
@@ -263,6 +263,17 @@ it('does not emit a duplicate OSC 8 close when slicing past a closed hyperlink',
   const sliced = sliceCells(line, 0, 9)
   expect(stripAnsi(sliced)).toBe('link tail')
   expect(sliced.match(/\x1b\]8;;\x07/g)).toHaveLength(1)
+})
+
+it('resolves OSC 8 hyperlinks by display column across CJK and wrapped rows', () => {
+  const line = '中文 \x1b]8;;src/app.ts#L12\x07\x1b[4m文档.md\x1b[24m\x1b]8;;\x07 end'
+  // "中"=0..1, "文"=2..3, " "=4, "文"=5..6, "档"=7..8, "."=9, "m"=10, "d"=11, " "=12
+  expect(hyperlinkAt(line, 4)).toBeUndefined()
+  expect(hyperlinkAt(line, 5)).toBe('src/app.ts#L12')
+  expect(hyperlinkAt(line, 8)).toBe('src/app.ts#L12')
+  expect(hyperlinkAt(line, 11)).toBe('src/app.ts#L12')
+  expect(hyperlinkAt(line, 12)).toBeUndefined()
+  expect(hyperlinkAt(line, -1)).toBeUndefined()
 })
 
 it('wraps large drafts in wrapIndexed without quadratic slowdown', () => {
