@@ -6,6 +6,8 @@ The format is based on [Keep a Changelog], and this project adheres to [Semantic
 
 ## [Unreleased]
 
+## [0.29.1] - 2026-11-21
+
 ### Changed
 
 - Improved long-session and streaming TUI responsiveness by caching streaming Markdown prefixes, `fitFrame` width checks, theme palettes/SGR sequences, and transcript sticky headers, and fixing quadratic draft line-wrapping in `wrapIndexed`.
@@ -1160,7 +1162,8 @@ The format is based on [Keep a Changelog], and this project adheres to [Semantic
 - Preserved terminal-cell alignment and right padding for long commands, CJK text, emoji, ANSI styling, and narrow viewports.
 - Stabilized incremental rendering, transcript scrolling, cursor placement, tool-output folding, and queued input during active turns.
 
-[Unreleased]: https://github.com/agi-fans/oh-my-dsh/compare/v0.29.0...HEAD
+[Unreleased]: https://github.com/agi-fans/oh-my-dsh/compare/v0.29.1...HEAD
+[0.29.1]: https://github.com/agi-fans/oh-my-dsh/compare/v0.29.0...v0.29.1
 [0.29.0]: https://github.com/agi-fans/oh-my-dsh/compare/v0.28.0...v0.29.0
 [0.28.0]: https://github.com/agi-fans/oh-my-dsh/compare/v0.27.0...v0.28.0
 [0.27.0]: https://github.com/agi-fans/oh-my-dsh/compare/v0.26.1...v0.27.0
