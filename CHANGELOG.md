@@ -6,6 +6,8 @@ The format is based on [Keep a Changelog], and this project adheres to [Semantic
 
 ## [Unreleased]
 
+## [0.29.2] - 2026-11-21
+
 ### Added
 
 - Clicking local file links (including relative paths, `~/...`, `file://` URIs, and `#L…` / `:line` locators) in Markdown replies now opens the built-in full-screen file/image previewer at the referenced line without disturbing native scrollback; rendered Markdown previews also support clicking relative links with a back stack and `R` to reload.
@@ -1170,7 +1172,8 @@ The format is based on [Keep a Changelog], and this project adheres to [Semantic
 - Preserved terminal-cell alignment and right padding for long commands, CJK text, emoji, ANSI styling, and narrow viewports.
 - Stabilized incremental rendering, transcript scrolling, cursor placement, tool-output folding, and queued input during active turns.
 
-[Unreleased]: https://github.com/agi-fans/oh-my-dsh/compare/v0.29.1...HEAD
+[Unreleased]: https://github.com/agi-fans/oh-my-dsh/compare/v0.29.2...HEAD
+[0.29.2]: https://github.com/agi-fans/oh-my-dsh/compare/v0.29.1...v0.29.2
 [0.29.1]: https://github.com/agi-fans/oh-my-dsh/compare/v0.29.0...v0.29.1
 [0.29.0]: https://github.com/agi-fans/oh-my-dsh/compare/v0.28.0...v0.29.0
 [0.28.0]: https://github.com/agi-fans/oh-my-dsh/compare/v0.27.0...v0.28.0
