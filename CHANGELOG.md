@@ -6,6 +6,10 @@ The format is based on [Keep a Changelog], and this project adheres to [Semantic
 
 ## [Unreleased]
 
+### Fixed
+
+- Closed active SGR attributes (`underline`, `strike`, `inverse`, `bold`/`dim`, `italic`, foreground, and background) at wrapped line breaks in `restabilizeWrapSegments` so wrapped Markdown links and styled spans no longer bleed underlines or styling into trailing row padding or the next line's leading indentation.
+
 ## [0.29.1] - 2026-11-21
 
 ### Changed

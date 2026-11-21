@@ -514,6 +514,21 @@ describe('compact links', () => {
       expect(rows.join('\n')).toContain(href)
     }
   })
+
+  it('closes link underline before list continuation padding and reopens it on the wrapped label', () => {
+    const source = '- 相对路径解析（`resolve_against(&parent)`，[sidebar_document.rs](codex-rs/tui/src/app/sidebar_document.rs#L746-L776)）。'
+    const rows = renderMarkdown(source, color, 60)
+    const splitIndex = rows.findIndex(row => stripAnsi(row).includes('sidebar_document.r') && !stripAnsi(row).includes('sidebar_document.rs'))
+    expect(splitIndex).toBeGreaterThanOrEqual(0)
+    const first = rows[splitIndex]!
+    const next = rows[splitIndex + 1]!
+    // Trailing padding on the first row and leading indent on the next must not inherit underline.
+    expect(attributesAt(first + 'END', 'END')).toMatchObject({ underline: false, fg: '' })
+    expect(attributesAt(first + '\n' + next.replace(/^  /, 'INDENT'), 'INDENT')).toMatchObject({ underline: false, fg: '' })
+    // The wrapped tail of the link text reopens link color and underline, then closes before the URL.
+    expect(attributesAt(first + '\n' + next, 's\x1b[')).toMatchObject({ underline: true, fg: color.getFgAnsi('mdLink') })
+    expect(attributesAt(first + '\n' + next, '(codex-rs')).toMatchObject({ underline: false })
+  })
 })
 
 describe('streaming markdown prefix reuse', () => {

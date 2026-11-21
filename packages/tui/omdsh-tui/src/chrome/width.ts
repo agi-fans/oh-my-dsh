@@ -499,13 +499,30 @@ function reopenSgr(state: SgrState): string {
 }
 
 /**
- * Reopen active text attributes and hyperlinks at the start of each
- * continuation row. `wrapText` keeps ANSI attached to the following glyph but
- * does not synthesize a reopening sequence when a row closes an attribute and
- * the next row begins with plain text — so narrow wrapped styled rows lose
- * their semantic color or inverse at line breaks. This restabilizes each row
- * by tracking the SGR state accumulated from all preceding rows and prepending
- * the reopen sequence. No-op for unstyled or single-row output.
+ * Build the selective close sequence for attributes still active in `state`.
+ * Uses targeted SGR off-codes rather than `\x1b[0m` so enclosing surfaces can
+ * keep their background when `state.bg` was not set by the wrapped text.
+ */
+function closeSgr(state: SgrState): string {
+  const codes: number[] = []
+  if (state.bold || state.dim) codes.push(22)
+  if (state.italic) codes.push(23)
+  if (state.underline) codes.push(24)
+  if (state.inverse) codes.push(27)
+  if (state.strike) codes.push(29)
+  if (state.fg !== '') codes.push(39)
+  if (state.bg !== '') codes.push(49)
+  return (codes.length === 0 ? '' : `\x1b[${codes.join(';')}m`) + (state.link === '' ? '' : '\x1b]8;;\x07')
+}
+
+/**
+ * Make every wrapped visual row self-contained by closing active SGR attributes
+ * and OSC 8 hyperlinks at each line break and reopening them at the start of
+ * the next row. `wrapText` keeps ANSI attached to the following glyph, so
+ * without closing and reopening, attributes such as underline or inverse bleed
+ * into trailing row padding and the next line's leading indentation, while
+ * continuations can drop semantic color after a break. No-op for unstyled or
+ * single-row output.
  */
 export function restabilizeWrapSegments(segments: readonly string[]): string[] {
   if (segments.length <= 1) return [...segments]
@@ -513,6 +530,10 @@ export function restabilizeWrapSegments(segments: readonly string[]): string[] {
   let state = emptySgr()
   for (let i = 0; i < segments.length; i += 1) {
     const seg = segments[i] ?? ''
+    if (seg === '') {
+      out.push('')
+      continue
+    }
     // Reopen the state accumulated from *prior* rows before this row's own
     // escapes run, so the continuation inherits the active style rather than
     // re-applying escapes that already occur in this row.
@@ -523,7 +544,7 @@ export function restabilizeWrapSegments(segments: readonly string[]): string[] {
         ? { ...state, link: match[2] === '' ? '' : match[0] }
         : applySgr(state, match[1])
     }
-    out.push(reopen + seg + (state.link === '' ? '' : '\x1b]8;;\x07'))
+    out.push(reopen + seg + closeSgr(state))
   }
   return out
 }

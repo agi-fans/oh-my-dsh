@@ -85,12 +85,12 @@ describe('padToWidth', () => {
 })
 
 describe('restabilizeWrapSegments', () => {
-  it('reopens the active foreground at each continuation', () => {
+  it('reopens the active foreground at each continuation and closes it at each break', () => {
     const segments = wrapText('\x1b[31m- const alphabetfoo = 1\x1b[39m', 10)
     const stable = restabilizeWrapSegments(segments)
     expect(stable.length).toBeGreaterThan(1)
     for (const line of stable) expect(line).toContain('\x1b[31m')
-    expect(stable[0]).toBe(segments[0])
+    expect(stable[0]).toBe(`${segments[0]}\x1b[39m`)
   })
 
   it('reopens 256-color and truecolor foregrounds', () => {
@@ -126,8 +126,18 @@ describe('restabilizeWrapSegments', () => {
       'second\x1b[24;29m\x1b]8;;\x07',
       'plain',
     ])
+    expect(lines[0]).toBe(link + '\x1b[4;9mfirst\x1b[24;29m\x1b]8;;\x07')
     expect(lines[1]).toBe(link + '\x1b[4m\x1b[9msecond\x1b[24;29m\x1b]8;;\x07')
     expect(lines[2]).toBe('plain')
+  })
+
+  it('closes underline and foreground before a line break without emitting a background reset', () => {
+    const rows = wrapTextStable('\x1b[38;2;137;180;250m\x1b[4msidebar_document.rs\x1b[24m\x1b[39m', 18)
+    expect(rows).toEqual([
+      '\x1b[38;2;137;180;250m\x1b[4msidebar_document.r\x1b[24;39m',
+      '\x1b[38;2;137;180;250m\x1b[4ms\x1b[24m\x1b[39m',
+    ])
+    expect(rows[0]).not.toContain('49')
   })
 
   it('processes every attribute in a combined reset', () => {
