@@ -6,6 +6,8 @@ The format is based on [Keep a Changelog], and this project adheres to [Semantic
 
 ## [Unreleased]
 
+## [0.29.4] - 2026-11-22
+
 ### Fixed
 
 - Aligned in-turn process notices (such as background job settlement rows) to the standard two-cell process margin instead of column 0, and styled intentionally stopped (`killed`) background job notices as neutral info rather than red errors.
@@ -1186,7 +1188,8 @@ The format is based on [Keep a Changelog], and this project adheres to [Semantic
 - Preserved terminal-cell alignment and right padding for long commands, CJK text, emoji, ANSI styling, and narrow viewports.
 - Stabilized incremental rendering, transcript scrolling, cursor placement, tool-output folding, and queued input during active turns.
 
-[Unreleased]: https://github.com/agi-fans/oh-my-dsh/compare/v0.29.3...HEAD
+[Unreleased]: https://github.com/agi-fans/oh-my-dsh/compare/v0.29.4...HEAD
+[0.29.4]: https://github.com/agi-fans/oh-my-dsh/compare/v0.29.3...v0.29.4
 [0.29.3]: https://github.com/agi-fans/oh-my-dsh/compare/v0.29.2...v0.29.3
 [0.29.2]: https://github.com/agi-fans/oh-my-dsh/compare/v0.29.1...v0.29.2
 [0.29.1]: https://github.com/agi-fans/oh-my-dsh/compare/v0.29.0...v0.29.1
