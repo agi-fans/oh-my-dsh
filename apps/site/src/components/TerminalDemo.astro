@@ -6,24 +6,79 @@ interface Props {
 const { version } = Astro.props
 const samplePrompt = 'Hello, Oh My DSH!'
 const thinking = 'The user is saying hello. This is a casual greeting, so no tools are needed.'
-const answer = "Hello! Welcome to Oh My DSH. Tell me what you’d like to build, fix, or explore."
-// Braille glyphs are missing from most monospace fonts, so browsers fall back
-// to a wider font. Render each character in a fixed-width cell so fallback
-// glyph metrics cannot stretch the logo.
-const logoRows = [
-  '         ⢀⣀  ⢀⡀',
+const answer = 'Hello! Welcome to Oh My DSH. Tell me what you’d like to build, fix, or explore.'
+
+// Exact DEEPSEEK_LOGO 20×6 Braille bitmap and GRADIENT_STOPS from
+// packages/tui/omdsh-tui/src/chrome/theme.ts, decoded into vector dots so
+// browsers never suffer Braille fallback font stretching or inter-cell gaps.
+const DEEPSEEK_LOGO = [
+  '         ⢀⣀  ⢀⡀     ',
   '⢀⣤⣶⣿⣿⣿⣿⣿⣿⣿⣧⣄⡀⢻⣿⣷⣶⣶⣶⡿',
-  '⣿⡟⠛⠛⠛⠿⢿⣿⣿⣿⣿⡿⢿⣷⣾⣿⣿⠉⠉',
-  '⢻⣿⣄⡀  ⢀⠈⠛⢿⣿⣿⣶⣿⣿⡿⠃',
-  ' ⠙⠻⢿⣶⣦⣼⣿⣷⣦⣭⣿⠿⣿⣷⠦',
-  '     ⠉⠉⠉⠉⠉⠁',
-].map((row, rowIndex) =>
-  Array.from(row).map((character, column) => {
-    const progress = Math.min(1, (column + rowIndex * 0.7) / 23)
-    const hue = Math.round(292 - progress * 108)
-    return { character: character === ' ' ? '\u00a0' : character, color: `hsl(${hue} 84% 61%)` }
-  })
-)
+  '⣿⡟⠛⠛⠛⠿⢿⣿⣿⣿⣿⡿⢿⣷⣾⣿⣿⠉⠉ ',
+  '⢻⣿⣄⡀  ⢀⠈⠛⢿⣿⣿⣶⣿⣿⡿⠃   ',
+  ' ⠙⠻⢿⣶⣦⣼⣿⣷⣦⣭⣿⠿⣿⣷⠦    ',
+  '     ⠉⠉⠉⠉⠉⠁         ',
+] as const
+
+const GRADIENT_STOPS: ReadonlyArray<readonly [number, number, number]> = [
+  [47, 73, 224],
+  [77, 107, 254],
+  [53, 200, 222],
+  [124, 231, 242],
+]
+
+const BRAILLE_BITS: ReadonlyArray<readonly [number, number, number]> = [
+  [0x01, 0, 0],
+  [0x02, 0, 1],
+  [0x04, 0, 2],
+  [0x08, 1, 0],
+  [0x10, 1, 1],
+  [0x20, 1, 2],
+  [0x40, 0, 3],
+  [0x80, 1, 3],
+]
+
+function gradientColor(t: number): string {
+  const seg = Math.max(0, Math.min(1, t)) * (GRADIENT_STOPS.length - 1)
+  const i = Math.min(GRADIENT_STOPS.length - 2, Math.floor(seg))
+  const f = seg - i
+  const a = GRADIENT_STOPS[i]!
+  const b = GRADIENT_STOPS[i + 1] ?? a
+  const r = Math.round(a[0] + (b[0] - a[0]) * f)
+  const g = Math.round(a[1] + (b[1] - a[1]) * f)
+  const bl = Math.round(a[2] + (b[2] - a[2]) * f)
+  return `rgb(${r} ${g} ${bl})`
+}
+
+const rows = DEEPSEEK_LOGO.length
+const cols = Math.max(...DEEPSEEK_LOGO.map((line) => line.length))
+const span = Math.max(1, cols + rows - 1)
+const dotPitchX = 5
+const dotPitchY = 6.2 // 1.24 vertical aspect ratio matches real terminal cell proportions
+const dotRadius = 2.05
+const svgWidth = cols * 2 * dotPitchX
+const svgHeight = rows * 4 * dotPitchY
+
+const logoDots: Array<{ cx: number; cy: number; fill: string }> = []
+for (let y = 0; y < rows; y += 1) {
+  const line = DEEPSEEK_LOGO[y]!
+  for (let x = 0; x < line.length; x += 1) {
+    const code = line.charCodeAt(x)
+    if (code < 0x2800 || code > 0x28ff) continue
+    const bits = code - 0x2800
+    const fill = gradientColor((x + (rows - 1 - y)) / span)
+    for (const [mask, dx, dy] of BRAILLE_BITS) {
+      if ((bits & mask) === 0) continue
+      logoDots.push({
+        cx: (x * 2 + dx + 0.5) * dotPitchX,
+        cy: (y * 4 + dy + 0.5) * dotPitchY,
+        fill,
+      })
+    }
+  }
+}
+
+const drivingChars = Array.from('Deep Driving')
 ---
 
 <div class="terminal-demo" data-terminal-demo aria-hidden="true">
@@ -34,42 +89,65 @@ const logoRows = [
   </div>
   <div class="td-screen">
     <section class="td-header">
-      <div class="td-logo">
-        {
-          logoRows.map((cells) => (
-            <span class="td-logo-row">
-              {cells.map((cell) => <i class="td-logo-cell" style={{ color: cell.color }}>{cell.character}</i>)}
-            </span>
-          ))
-        }
-      </div>
+      <svg
+        class="td-logo"
+        viewBox={`0 0 ${svgWidth} ${svgHeight}`}
+        width={svgWidth}
+        height={svgHeight}
+        fill="none"
+      >
+        {logoDots.map((dot) => <circle cx={dot.cx} cy={dot.cy} r={dotRadius} fill={dot.fill} />)}
+      </svg>
       <div class="td-wordmark">
         <span class="td-name">Oh-My-DSH <em>v{version}</em></span>
         <span class="td-slogan">Into the Unknown</span>
       </div>
     </section>
+
     <div class="td-transcript">
       <div class="td-user-message" data-td-user hidden></div>
       <div class="td-response" data-td-response></div>
     </div>
-    <div class="td-editor">
+
+    <div class="td-editor" data-td-editor>
       <div class="td-rule">
-        <span class="td-editor-label">🐳</span>
-        <span class="td-access">workspace write</span>
+        <span class="td-editor-cap td-editor-left" data-td-idle-cap>🐳</span>
+        <span class="td-editor-cap td-editor-left td-activity" data-td-activity-cap hidden>
+          <span class="td-spinner" data-td-spinner>⠋</span>
+          <span class="td-shimmer" data-td-shimmer>
+            {drivingChars.map((ch) => <span class="td-shimmer-ch">{ch === ' ' ? '\u00a0' : ch}</span>)}
+          </span>
+        </span>
+        <span class="td-editor-cap td-access">workspace write</span>
       </div>
       <div class="td-input">
-        <span data-td-prompt></span><i class="td-caret" data-td-caret></i>
+        <span data-td-prompt></span><i class="td-caret" data-td-caret></i><span class="td-placeholder" data-td-placeholder>Ask anything</span>
       </div>
       <div class="td-rule td-rule-foot"></div>
     </div>
+
     <footer class="td-footer">
       <div class="td-footer-row">
-        <span><b>deepseek-flash</b> · <em>max</em> · <mark>standard</mark></span>
-        <span>~/oh-my-dsh&nbsp; · &nbsp;main</span>
+        <span>
+          <span class="td-f-text">deepseek-flash</span><span class="td-f-sep"> · </span><span class="td-f-token">high</span><span class="td-f-sep"> · </span><span class="td-f-accent">standard</span>
+        </span>
+        <span class="td-f-right">
+          <span class="td-f-muted">~/Workspace/oh-my-dsh</span><span class="td-f-sep"> · </span><span class="td-f-muted">main</span>
+        </span>
       </div>
-      <div class="td-footer-row">
-        <span>Ctx <mark>1%</mark> · <b>10.1k/1M</b> · Cache <em>99%</em></span>
-        <span>TTFT <em>0.9s</em> · <em>97 tok/s</em> · <b>9.6K</b> in · <b>395</b> out</span>
+      <div class="td-footer-row" data-td-telemetry-idle>
+        <span>
+          <span class="td-f-muted">Ctx </span><span class="td-f-token">0%</span>
+        </span>
+        <span></span>
+      </div>
+      <div class="td-footer-row" data-td-telemetry-settled hidden>
+        <span>
+          <span class="td-f-muted">Ctx </span><span class="td-f-token">1%</span><span class="td-f-sep"> · </span><span class="td-f-muted">Cache </span><span class="td-f-positive">99%</span>
+        </span>
+        <span class="td-f-right">
+          <span class="td-f-muted">TTFT </span><span class="td-f-text">0.9s</span><span class="td-f-sep"> · </span><span class="td-f-text">97 tok/s</span>
+        </span>
       </div>
     </footer>
   </div>
@@ -81,11 +159,22 @@ const logoRows = [
 >
   const root = document.querySelector('[data-terminal-demo]')
   if (root) {
+    const editorEl = root.querySelector('[data-td-editor]')
+    const idleCapEl = root.querySelector('[data-td-idle-cap]')
+    const activityCapEl = root.querySelector('[data-td-activity-cap]')
+    const spinnerEl = root.querySelector('[data-td-spinner]')
+    const shimmerChars = Array.from(root.querySelectorAll('.td-shimmer-ch'))
     const promptEl = root.querySelector('[data-td-prompt]')
+    const placeholderEl = root.querySelector('[data-td-placeholder]')
     const userEl = root.querySelector('[data-td-user]')
     const responseEl = root.querySelector('[data-td-response]')
     const caretEl = root.querySelector('[data-td-caret]')
+    const telemetryIdleEl = root.querySelector('[data-td-telemetry-idle]')
+    const telemetrySettledEl = root.querySelector('[data-td-telemetry-settled]')
+    const spinnerFrames = ['⠋', '⠙', '⠹', '⠸', '⠼', '⠴', '⠦', '⠧', '⠇', '⠏']
     const timers = []
+    let spinnerTimer = null
+    let spinnerFrame = 0
     let stopped = false
 
     const later = (fn, delay) => {
@@ -95,46 +184,92 @@ const logoRows = [
       timers.push(id)
     }
 
+    const paintShimmer = (frame) => {
+      const runway = 3
+      const highlight = (frame % (shimmerChars.length + runway * 2)) - runway
+      shimmerChars.forEach((el, idx) => {
+        if (el.textContent === '\u00a0') return
+        const dist = Math.abs(idx - highlight)
+        el.dataset.s = dist === 0 ? '0' : dist === 1 ? '1' : dist === 2 ? '2' : ''
+      })
+    }
+
+    const setRunning = (running) => {
+      editorEl.dataset.running = running ? 'true' : 'false'
+      idleCapEl.hidden = running
+      activityCapEl.hidden = !running
+      if (spinnerTimer !== null) {
+        clearInterval(spinnerTimer)
+        spinnerTimer = null
+      }
+      if (running) {
+        spinnerFrame = 0
+        spinnerEl.textContent = spinnerFrames[0]
+        paintShimmer(0)
+        spinnerTimer = setInterval(() => {
+          spinnerFrame += 1
+          spinnerEl.textContent = spinnerFrames[spinnerFrame % spinnerFrames.length]
+          paintShimmer(spinnerFrame)
+        }, 90)
+      }
+    }
+
     const showSettled = () => {
+      setRunning(false)
       promptEl.textContent = ''
+      placeholderEl.textContent = 'Ask anything'
+      placeholderEl.hidden = false
+      caretEl.hidden = false
       userEl.hidden = false
       userEl.textContent = samplePrompt
       responseEl.innerHTML =
-        `<div class="td-muted">› Worked for 2s · Ctrl+O to expand</div><div class="td-answer">${answer}</div>`
-      caretEl.hidden = true
+        `<div class="td-summary"><span class="td-disclosure">▸</span> <span class="td-dim">Worked for 2s · Ctrl+O to expand</span></div><div class="td-answer">${answer}</div>`
+      telemetryIdleEl.hidden = true
+      telemetrySettledEl.hidden = false
     }
 
     const typePrompt = (index = 0) => {
+      if (index === 0) {
+        placeholderEl.hidden = true
+      }
       if (index >= samplePrompt.length) {
-        later(runTurn, 450)
+        later(runTurn, 420)
         return
       }
       promptEl.textContent += samplePrompt[index]
-      later(() => typePrompt(index + 1), 34)
+      later(() => typePrompt(index + 1), 36)
     }
 
     const runTurn = () => {
       userEl.hidden = false
       userEl.textContent = promptEl.textContent
       promptEl.textContent = ''
-      responseEl.innerHTML = `<div class="td-muted">› Thinking · ${thinking}</div>`
-      later(showSettled, 850)
-      later(resetDemo, 6200)
+      placeholderEl.textContent = 'Enter: Queue · Alt+S: Steer'
+      placeholderEl.hidden = false
+      setRunning(true)
+      responseEl.innerHTML = `<div class="td-dim">▸ Thinking · ${thinking}</div>`
+      later(showSettled, 1350)
+      later(resetDemo, 6800)
     }
 
     const resetDemo = () => {
+      setRunning(false)
       promptEl.textContent = ''
+      placeholderEl.textContent = 'Ask anything'
+      placeholderEl.hidden = false
       caretEl.hidden = false
       userEl.hidden = true
       userEl.textContent = ''
       responseEl.innerHTML = ''
-      later(() => typePrompt(), 650)
+      telemetryIdleEl.hidden = false
+      telemetrySettledEl.hidden = true
+      later(() => typePrompt(), 750)
     }
 
     if (window.matchMedia('(prefers-reduced-motion: reduce)').matches) {
       showSettled()
     } else if ('requestIdleCallback' in window) {
-      requestIdleCallback(() => later(() => typePrompt(), 400), { timeout: 2500 })
+      requestIdleCallback(() => later(() => typePrompt(), 450), { timeout: 2500 })
     } else {
       later(() => typePrompt(), 850)
     }
@@ -142,29 +277,59 @@ const logoRows = [
 </script>
 
 <style>
+/* Semantic tokens mirror DARK_PALETTE (Catppuccin Mocha) and LIGHT_PALETTE
+ * (Catppuccin Latte) in packages/tui/omdsh-tui/src/chrome/theme.ts. */
 .terminal-demo {
+  --td-bg: #181825;
+  --td-frame-border: #2a2c3d;
+  --td-text: #cdd6f4;
+  --td-muted: #bac2de;
+  --td-dim: #9399b2;
+  --td-accent: #89b4fa;
+  --td-border: #454e70;
+  --td-success: #a6e3a1;
+  --td-token: #cba6f7;
+  --td-user-bg: #20283f;
+  --td-user-text: #cdd6f4;
+  --td-shadow: 0 26px 72px rgb(0 0 0 / 46%);
+
   width: min(760px, 100%);
   margin: 0 auto;
   overflow: hidden;
-  color: #c8c7cc;
-  background: #101016;
-  border: 1px solid #20212b;
-  border-radius: 17px;
+  color: var(--td-text);
+  background: var(--td-bg);
+  border: 1px solid var(--td-frame-border);
+  border-radius: 14px;
   box-sizing: border-box;
-  box-shadow: 0 26px 72px rgb(0 0 0 / 42%);
-  font-family: 'SFMono-Regular', 'Cascadia Code', 'JetBrains Mono', ui-monospace, monospace;
-  font-size: 10px;
-  line-height: 1.45;
+  box-shadow: var(--td-shadow);
+  font-family: var(--font-mono);
+  font-size: 11px;
+  line-height: 1.48;
   text-align: left;
+}
+
+:global([data-theme='light']) .terminal-demo {
+  --td-bg: #eff1f5;
+  --td-frame-border: #ccd0da;
+  --td-text: #4c4f69;
+  --td-muted: #5c5f77;
+  --td-dim: #6c6f85;
+  --td-accent: #245ac7;
+  --td-border: #a0adca;
+  --td-success: #386b35;
+  --td-token: #783ab0;
+  --td-user-bg: #e6ecfb;
+  --td-user-text: #4c4f69;
+  --td-shadow: 0 22px 60px rgb(28 36 56 / 14%);
 }
 
 .td-chrome {
   display: flex;
   gap: 7px;
   align-items: center;
-  height: 29px;
-  padding: 0 11px;
-  background: #101016;
+  height: 28px;
+  padding: 0 12px;
+  background: var(--td-bg);
 }
 
 .td-dot {
@@ -177,39 +342,21 @@ const logoRows = [
 .td-dot-yellow { background: #febc2e; }
 .td-dot-green { background: #28c840; }
 
-.td-screen { padding: 12px 13px 10px; }
+.td-screen { padding: 8px 12px 10px; }
 
-/* Startup lockup mirrors renderWelcome in the TUI. */
+/* Startup lockup mirrors renderWelcome in packages/tui/omdsh-tui/src/chrome/box.ts. */
 .td-header {
   display: flex;
   gap: 3ch;
   align-items: center;
-  padding: 6px 0 0;
+  padding: 2px 0 0 1ch;
 }
 
 .td-logo {
-  display: grid;
-  font-family: Menlo, Monaco, 'DejaVu Sans Mono', monospace;
-  font-size: 9.5px;
-  line-height: 1;
-}
-
-.td-logo-row {
-  display: grid;
-  height: 1.45em;
-  grid-auto-columns: 0.52em;
-  grid-auto-flow: column;
-  justify-content: start;
-}
-
-.td-logo-cell {
   display: block;
-  width: 0.52em;
-  overflow: visible;
-  font-style: normal;
-  text-align: center;
-  transform: scale(0.84, 1.55);
-  transform-origin: center;
+  width: 116px;
+  height: auto;
+  flex: none;
 }
 
 .td-wordmark {
@@ -219,100 +366,122 @@ const logoRows = [
 }
 
 .td-name {
-  color: #d3d2d6;
+  color: var(--td-text);
   font-weight: 700;
 }
 
 .td-name em {
-  color: #6d6f79;
+  color: var(--td-dim);
   font-style: normal;
   font-weight: 400;
 }
 
-.td-slogan { color: #8a8c96; }
+.td-slogan { color: var(--td-muted); }
 
 .td-transcript {
-  min-height: 155px;
-  padding: 18px 0 20px;
+  min-height: 158px;
+  padding: 16px 0 18px;
 }
 
+/* Full-bleed user message slab mirrors userBubble in transcript-render.ts. */
 .td-user-message {
   margin-bottom: 14px;
-  padding: 14px 12px;
-  color: #d6d4d7;
-  background: #191613;
+  padding: 10px 2ch;
+  color: var(--td-user-text);
+  background: var(--td-user-bg);
 }
 
 .td-response {
   display: grid;
   gap: 10px;
-  padding: 0 13px;
+  padding: 0 2ch;
 }
 
-.td-response :global(.td-muted) { color: #6b7280; }
-.td-response :global(.td-answer) { color: #d7d6d9; }
+.td-response :global(.td-dim) { color: var(--td-dim); }
+.td-response :global(.td-disclosure) { color: var(--td-text); }
+.td-response :global(.td-answer) { color: var(--td-text); }
 
 /*
- * The composer is ruled above and below, not boxed: the label sits inside the
- * top rule and the Access badge closes it on the right. Mirror of
- * `renderEditor` in the same file.
+ * Top/bottom ruled composer mirrors renderEditor in box.ts: idle shows the 🐳
+ * label and green workspace-write badge; active turns swap to accent rules and
+ * the shimmering Deep Driving spinner.
  */
 .td-editor {
   position: relative;
-  color: #dedde0;
+  color: var(--td-text);
 }
 
 .td-rule {
   position: relative;
   height: 0;
-  border-top: 1px solid #363843;
+  border-top: 1px solid var(--td-border);
+  transition: border-color 140ms ease;
 }
 
-.td-rule-foot { border-top-color: #363843; }
+.td-editor[data-running='true'] .td-rule {
+  border-top-color: var(--td-accent);
+}
 
-.td-editor-label,
-.td-access {
+.td-editor-cap {
   position: absolute;
   bottom: 0;
-  padding: 0 7px;
-  background: #101016;
+  padding: 0 1ch;
+  background: var(--td-bg);
   line-height: 1;
   transform: translateY(50%);
   white-space: nowrap;
 }
 
-/* The mark is a glyph in the rule, so it needs its own size: the terminal draws
-   it at text size, but 10px leaves an emoji with no room for its own detail. */
-.td-editor-label {
-  left: 12px;
-  font-size: 13px;
+.td-editor-left { left: 2ch; }
+
+.td-activity {
+  display: inline-flex;
+  gap: 1ch;
+  align-items: center;
 }
 
+.td-activity[hidden],
+.td-editor-left[hidden],
+.td-footer-row[hidden] {
+  display: none;
+}
+
+.td-spinner { color: var(--td-accent); }
+.td-shimmer { color: var(--td-muted); }
+.td-shimmer-ch[data-s='0'] { color: var(--td-accent); font-weight: 700; }
+.td-shimmer-ch[data-s='1'] { color: var(--td-accent); }
+.td-shimmer-ch[data-s='2'] { color: var(--td-text); }
+
 .td-access {
-  right: 6px;
-  color: #ff5364;
+  right: 1ch;
+  color: var(--td-success);
 }
 
 .td-input {
-  min-height: 24px;
-  padding: 5px 11px 6px;
+  min-height: 28px;
+  padding: 7px 1ch 6px;
 }
 
 .td-caret {
   display: inline-block;
-  width: 5px;
+  width: 6px;
   height: 1.15em;
-  margin-left: 2px;
   vertical-align: -2px;
-  background: #aeb0ba;
+  background: var(--td-text);
   animation: blink 1s steps(1) infinite;
 }
 
+.td-placeholder {
+  margin-left: 2px;
+  color: var(--td-dim);
+}
+
+/* Two-line footer mirrors renderStatusFooter in chrome/status-line.ts. */
 .td-footer {
   display: grid;
   gap: 2px;
-  padding: 7px 8px 0;
-  color: #696b76;
+  padding: 6px 2ch 0;
+  color: var(--td-dim);
 }
 
 .td-footer-row {
@@ -322,16 +491,18 @@ const logoRows = [
   white-space: nowrap;
 }
 
-.td-footer b,
-.td-footer em,
-.td-footer mark {
-  font: inherit;
-  background: none;
+.td-f-right {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
-.td-footer b { color: #e5a912; }
-.td-footer em { color: #60c878; }
-.td-footer mark { color: #ad77df; }
+.td-f-text { color: var(--td-text); }
+.td-f-muted { color: var(--td-muted); }
+.td-f-sep { color: var(--td-dim); }
+.td-f-accent { color: var(--td-accent); }
+.td-f-token { color: var(--td-token); }
+.td-f-positive { color: var(--td-success); }
 
 @keyframes blink {
   50% { opacity: 0; }
@@ -340,22 +511,22 @@ const logoRows = [
 @media (max-width: 640px) {
   .terminal-demo {
     width: min(520px, 100%);
-    font-size: 8.5px;
+    font-size: 9.5px;
   }
 
-  .td-screen { padding: 10px; }
+  .td-screen { padding: 8px 10px 9px; }
+  .td-logo { width: 92px; }
   .td-header { gap: 2ch; }
-  .td-transcript { min-height: 132px; padding-bottom: 18px; }
-  .td-footer-row span:last-child { overflow: hidden; text-overflow: ellipsis; }
+  .td-transcript { min-height: 136px; padding: 12px 0 14px; }
 }
 
 @media (max-width: 430px) {
   .td-chrome { height: 24px; }
-  .td-logo { font-size: 7px; }
-  .td-transcript { min-height: 126px; padding: 14px 0 16px; }
-  .td-response { gap: 7px; padding-inline: 8px; }
-  .td-footer-row:first-child span:last-child,
-  .td-footer-row:last-child span:first-child { display: none; }
+  .td-logo { width: 78px; }
+  .td-transcript { min-height: 124px; padding: 10px 0 12px; }
+  .td-footer { padding-inline: 1ch; }
+  .td-footer-row:first-child .td-f-right,
+  .td-footer-row[data-td-telemetry-settled] .td-f-right { display: none; }
 }
 
 @media (prefers-reduced-motion: reduce) {
