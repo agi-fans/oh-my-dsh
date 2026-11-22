@@ -1,0 +1,33 @@
+{
+  "name": "omdsh-promo-video",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Standalone Remotion project for rendering Oh My DSH promotional videos (excluded from the root workspace and published packages)",
+  "scripts": {
+    "capture:live": "node scripts/capture-live-omdsh.mjs",
+    "capture:views": "pnpm --dir ../.. exec tsx tools/promo-video/scripts/capture-real-tui.mts",
+    "capture": "pnpm run capture:live && pnpm run capture:views",
+    "audio": "node scripts/generate-audio.mjs",
+    "prepare:assets": "pnpm run capture && pnpm run audio",
+    "typecheck": "tsc --noEmit",
+    "studio": "remotion studio src/index.ts",
+    "still": "remotion still src/index.ts OmdshPromo out/poster.png --frame=260 --log=error",
+    "render": "node scripts/render.mjs",
+    "clean": "node -e \"const fs=require('node:fs');for(const p of ['out','public/media','src/data'])fs.rmSync(p,{recursive:true,force:true})\""
+  },
+  "dependencies": {
+    "@fontsource-variable/jetbrains-mono": "^5.2.5",
+    "@fontsource-variable/space-grotesk": "^5.2.5",
+    "@remotion/cli": "^4.0.290",
+    "@xterm/headless": "^6.0.0",
+    "react": "^19.0.0",
+    "react-dom": "^19.0.0",
+    "remotion": "^4.0.290"
+  },
+  "devDependencies": {
+    "@types/node": "^22.10.0",
+    "@types/react": "^19.0.0",
+    "typescript": "^5.8.0"
+  }
+}

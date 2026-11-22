@@ -1,0 +1,12 @@
+node_modules/
+out/
+public/media/
+src/data/*.json
+*.mp4
+*.mov
+*.webm
+*.wav
+*.m4a
+*.png
+*.log
+.DS_Store
