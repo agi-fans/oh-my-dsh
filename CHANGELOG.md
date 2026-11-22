@@ -6,6 +6,14 @@ The format is based on [Keep a Changelog], and this project adheres to [Semantic
 
 ## [Unreleased]
 
+### Changed
+
+- Styled `/btw` side-question panes and folded/expanded transcript aside blocks with a dedicated mauve surface (`asideBg`) and matching vertical padding across dark, light, and system themes so side answers stay visually distinct from main conversation messages and tool cards.
+
+### Fixed
+
+- Added top and bottom tinted padding rows to `!` shell command cards so their vertical spacing matches regular user messages and tool cards, and avoided an extra blank row when shell output contains only a trailing prompt.
+
 ## [0.29.2] - 2026-11-21
 
 ### Added

@@ -23,7 +23,7 @@ function contrast(fg: string, bg: string): number {
 }
 
 // Fixed surfaces must stay readable independently of the host's default ink.
-const CARD_BACKGROUNDS: readonly ThemeColor[] = ['toolPendingBg', 'toolSuccessBg', 'toolAltBg', 'toolErrorBg']
+const CARD_BACKGROUNDS: readonly ThemeColor[] = ['toolPendingBg', 'toolSuccessBg', 'toolAltBg', 'toolErrorBg', 'asideBg']
 const CARD_INK: readonly ThemeColor[] = ['toolTitle', 'toolOutput', 'toolDiffContext', 'toolDiffAdded', 'toolDiffRemoved', 'error', 'muted']
 const CODE_INK: readonly ThemeColor[] = ['mdCode', 'mdCodeBlock', 'mdKeyword', 'syntaxString', 'syntaxNumber', 'syntaxFunction', 'syntaxType', 'syntaxComment', 'syntaxPunctuation', 'mdQuote', 'thinkingText', 'mdLink']
 
@@ -64,6 +64,9 @@ describe('theme contrast contracts', () => {
     expect(theme.getFgAnsi('userMessageText')).not.toBe('\x1b[39m')
     expect(contrast(theme.getFgAnsi('userMessageText'), theme.getBgAnsi('userMessageBg'))).toBeGreaterThanOrEqual(4.5)
     expect(contrast(theme.getFgAnsi('accent'), theme.getBgAnsi('userMessageBg'))).toBeGreaterThanOrEqual(4.5)
+    expect(contrast(theme.getFgAnsi('customMessageLabel'), theme.getBgAnsi('asideBg'))).toBeGreaterThanOrEqual(4.5)
+    expect(theme.getBgAnsi('asideBg')).not.toBe(theme.getBgAnsi('userMessageBg'))
+    expect(theme.getBgAnsi('asideBg')).not.toBe(theme.getBgAnsi('toolSuccessBg'))
     for (const bg of CARD_BACKGROUNDS) {
       for (const fg of CARD_INK) {
         expect(theme.getFgAnsi(fg), `${name} ${fg}`).not.toBe('\x1b[39m')

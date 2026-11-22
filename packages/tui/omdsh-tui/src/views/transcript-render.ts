@@ -1026,17 +1026,22 @@ export function blockLines(
     })
   }
   if (block.kind === 'aside') {
-    // One line when closed, the whole answer when opened — the same fold a long
-    // command result uses, so there is one expand gesture in the product.
-    const head = ' ' + theme.bold(theme.fg('accent', '/btw')) + ' ' + theme.fg('text', block.question)
+    // One tinted strip when closed, one padded slab when opened — the same fold
+    // a long command result uses, on its own mauve surface so a side answer
+    // never blends into the main conversation's prose.
+    const inset = width > 4 ? 2 : 0
+    const room = Math.max(1, width - inset * 2)
+    const pad = ' '.repeat(inset)
+    const marker = expandedOutput ? SYMBOL.unfolded : SYMBOL.folded
+    const label = theme.fg('dim', marker) + ' ' + theme.bold(theme.fg('customMessageLabel', '/btw')) + ' ' + theme.fg('toolTitle', block.question)
+    const paint = (line: string): string =>
+      paintSurface(theme, 'asideBg', 'toolOutput', padToWidth(line === '' ? '' : pad + line, width))
     if (expandedOutput) {
-      return [
-        truncateToWidth(head, width),
-        '',
-        ...renderMarkdown(block.text, theme, Math.max(1, width - 2)).map(line => '  ' + line),
-      ]
+      const body = renderMarkdown(block.text, theme, room).map(line => truncateToWidth(line, room))
+      return ['', truncateToWidth(label, room), '', ...body, ''].map(paint)
     }
-    return [truncateToWidth(head + theme.fg('dim', ` · ${outputExpandKey}: Expand`), width)]
+    const hint = theme.fg('dim', ` · ${outputExpandKey}: Expand`)
+    return [paint(truncateToWidth(label + hint, room))]
   }
   if (block.kind === 'shell') return renderShell(block, theme, width)
   if (block.boundary === true) return [renderTranscriptBoundary(block.text, theme, width)]
@@ -2402,7 +2407,8 @@ export interface AsidePanel {
 const ASIDE_MAX_ROWS = 12
 
 /**
- * The side-conversation pane: a rule, the question, the answer, and how to leave.
+ * The side-conversation pane: a mauve surface with the question, the answer,
+ * and how to leave.
  *
  * A pane rather than a transcript block because the exchange belongs to a
  * conversation that is not this one: the reader is working in the transcript, and
@@ -2411,25 +2417,37 @@ const ASIDE_MAX_ROWS = 12
  */
 export function renderAside(panel: AsidePanel, theme: Theme, width: number, available = ASIDE_MAX_ROWS): string[] {
   if (width <= 0) return []
-  const rule = theme.fg('border', '─'.repeat(width))
-  const head = ' ' + theme.bold(theme.fg('accent', '/btw')) + ' ' + theme.fg('text', panel.question)
+  const inset = width > 4 ? 2 : 0
+  const room = Math.max(1, width - inset * 2)
+  const pad = ' '.repeat(inset)
+  const head = theme.bold(theme.fg('customMessageLabel', '/btw')) + ' ' + theme.fg('toolTitle', panel.question)
   const body = panel.text === ''
     ? [theme.fg('dim', panel.status === 'running' ? '…' : 'No answer.')]
-    : renderMarkdown(panel.text, theme, Math.max(1, width - 2))
+    : renderMarkdown(panel.text, theme, room)
   const detail = panel.detail === undefined || panel.detail === ''
     ? []
     : ['', theme.fg('dim', panel.detail)]
-  const hint = ' ' + theme.fg('dim', formatOverlayHint([{ keys: '↑↓', action: 'scroll' }, { keys: '/copy', action: 'copy' }, { keys: 'Esc', action: 'close' }], 'lowercase', theme.language))
-  // Two rules, the question, its blank line, and the hint are always drawn. What
-  // is left is the answer's window, so the pane never grows past its cap.
+  const hint = theme.fg('dim', formatOverlayHint([{ keys: '↑↓', action: 'scroll' }, { keys: '/copy', action: 'copy' }, { keys: 'Esc', action: 'close' }], 'lowercase', theme.language))
+  // Two vertical padding rows (or rules without colour), the question, its blank
+  // line, and the hint are always drawn. What is left is the answer's window, so
+  // the pane never grows past its cap.
   const cap = Math.max(6, Math.min(ASIDE_MAX_ROWS, available))
-  const windowRows = Math.max(1, cap - 4)
+  const windowRows = Math.max(1, cap - 5)
   const content = [...body, ...detail]
   const maxStart = Math.max(0, content.length - windowRows)
   const first = Math.max(0, Math.min(panel.scroll, maxStart))
-  const rows = [head, '', ...content.slice(first, first + windowRows)]
-  return [rule, ...rows.map(line => '  ' + line).map(line => truncateToWidth(line, width)),
-    truncateToWidth(hint, width), rule]
+  const inner = [
+    truncateToWidth(head, room),
+    '',
+    ...content.slice(first, first + windowRows).map(line => truncateToWidth(line, room)),
+    truncateToWidth(hint, room),
+  ]
+  if (theme.colors) {
+    return ['', ...inner, ''].map(line =>
+      paintSurface(theme, 'asideBg', 'toolOutput', padToWidth(line === '' ? '' : pad + line, width)))
+  }
+  const rule = '─'.repeat(width)
+  return [rule, ...inner.map(line => truncateToWidth(line === '' ? '' : pad + line, width)), rule]
 }
 
 function compactTodos(todos: readonly TodoItem[], theme: Theme, width: number): string[] {

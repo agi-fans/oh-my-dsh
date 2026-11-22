@@ -5,7 +5,7 @@ import { BOX, colorDisabledByEnv, createTheme, DEEPSEEK_LOGO, detectColorDepth, 
 const THEME_COLORS: readonly ThemeColor[] = [
   'accent', 'border', 'borderAccent', 'borderMuted', 'success', 'error', 'warning',
   'muted', 'dim', 'text', 'userMessageText', 'userMessageBg', 'toolPendingBg',
-  'toolSuccessBg', 'toolAltBg', 'toolErrorBg', 'toolTitle', 'toolOutput', 'toolDiffAdded',
+  'toolSuccessBg', 'toolAltBg', 'toolErrorBg', 'asideBg', 'toolTitle', 'toolOutput', 'toolDiffAdded',
   'toolDiffRemoved', 'toolDiffContext', 'mdHeading', 'mdLink', 'mdLinkUrl', 'mdCode',
   'mdCodeBlock', 'mdCodeBlockBorder', 'mdKeyword', 'mdQuote', 'mdListBullet',
   'thinkingText', 'customMessageLabel',

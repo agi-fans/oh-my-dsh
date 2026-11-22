@@ -38,7 +38,8 @@ export function renderCommandOutput(
   if (surface === undefined || !theme.colors) return plain.map(row => truncateToWidth(row, width))
   // A tinted block, not a border: the answer is prose from somewhere else, and a
   // frame around it would claim it is a component the reader operates.
-  return plain.map(row => paintSurface(theme, 'toolAltBg', 'toolOutput', padToWidth(truncateToWidth(row, width), width)))
+  return ['', ...plain, ''].map(row =>
+    paintSurface(theme, 'asideBg', 'toolOutput', padToWidth(truncateToWidth(row, width), width)))
 }
 
 function renderCommandOutputRows(command: string, text: string, theme: Theme, width: number): string[] {
@@ -114,24 +115,28 @@ export function renderShell(block: { command: string; output: string; status: 'r
     // prompt underneath adds a second, differently spelled copy of the same
     // fact, and it is the shell's chrome rather than this command's output.
     const lines = dropTrailingPrompt(rows.split('\n'))
-    // A running command shows its newest rows, a settled one its first rows: mid-run
-    // the reader is watching progress, afterwards they are reading from the start.
-    const omitted = Math.max(0, lines.length - SHELL_PREVIEW_ROWS)
-    const visible = omitted === 0 ? lines : block.status === 'running' ? lines.slice(-SHELL_PREVIEW_ROWS) : lines.slice(0, SHELL_PREVIEW_ROWS)
-    const ink = block.status === 'error' ? 'error' : 'toolOutput'
-    body.push('')
-    for (const line of visible) {
-      for (const row of wrapCode(theme.fg(ink, line), room)) body.push(truncateToWidth(row, room))
-    }
-    if (omitted > 0) {
-      body.push(theme.fg('dim', `… ${omitted} ${block.status === 'running' ? 'earlier' : 'more'} ${omitted === 1 ? 'line' : 'lines'}`))
+    if (lines.length > 0) {
+      // A running command shows its newest rows, a settled one its first rows: mid-run
+      // the reader is watching progress, afterwards they are reading from the start.
+      const omitted = Math.max(0, lines.length - SHELL_PREVIEW_ROWS)
+      const visible = omitted === 0 ? lines : block.status === 'running' ? lines.slice(-SHELL_PREVIEW_ROWS) : lines.slice(0, SHELL_PREVIEW_ROWS)
+      const ink = block.status === 'error' ? 'error' : 'toolOutput'
+      body.push('')
+      for (const line of visible) {
+        for (const row of wrapCode(theme.fg(ink, line), room)) body.push(truncateToWidth(row, room))
+      }
+      if (omitted > 0) {
+        body.push(theme.fg('dim', `… ${omitted} ${block.status === 'running' ? 'earlier' : 'more'} ${omitted === 1 ? 'line' : 'lines'}`))
+      }
     }
   }
   if (block.status === 'error' && block.code !== undefined) body.push(theme.fg('error', `exit ${block.code}`))
   // The fill is the state: pending while it writes, success when it settles, and
   // the failure surface when it exits non-zero — the same three surfaces a tool
-  // card uses, so a reader reads one vocabulary for both.
+  // card uses, so a reader reads one vocabulary for both. Match user message
+  // slabs and tool cards with one tinted padding row above and below the body.
   const fill = block.status === 'running' ? 'toolPendingBg' : block.status === 'error' ? 'toolErrorBg' : 'toolSuccessBg'
   const pad = ' '.repeat(inset)
-  return body.map(line => paintSurface(theme, fill, 'toolOutput', padToWidth(pad + line, width)))
+  return ['', ...body, ''].map(line =>
+    paintSurface(theme, fill, 'toolOutput', padToWidth(line === '' ? '' : pad + line, width)))
 }

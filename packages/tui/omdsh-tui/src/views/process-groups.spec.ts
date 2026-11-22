@@ -12,11 +12,14 @@ import { ToolCallId } from '@deepseek-ai/dsh-llm'
 import type { SessionEvent } from '@deepseek-ai/dsh-session'
 import {
   applyEvent,
+  blockLines,
   initialTranscript,
   processGroups,
+  renderAside,
   renderView,
   replayEvents,
 } from './event-views.ts'
+import { createTheme } from '../chrome/theme.ts'
 import { stripAnsi, visibleWidth } from '../chrome/width.ts'
 import type { Block, TranscriptState } from './transcript-types.ts'
 
@@ -734,5 +737,38 @@ describe('the side-question pane', () => {
     const frame = renderView({ ...initialTranscript(), blocks, turn: 1, status: 'idle' as const },
       { width: 80, height: 30, model: 'm', input: '', inputCursor: 0, colors: false, aside: panel })
     expect(frame.lines.map(stripAnsi).join('\n')).toContain('esc close')
+  })
+
+  it.each(['dark', 'light'] as const)('paints the live /btw pane and settled aside blocks on the %s asideBg surface', name => {
+    const theme = createTheme(true, true, name)
+    const fill = theme.getBgAnsi('asideBg')
+    const badge = theme.getFgAnsi('customMessageLabel')
+
+    const live = renderAside(panel, theme, 60)
+    expect(stripAnsi(live[0] ?? '').trim()).toBe('')
+    expect(stripAnsi(live.at(-1) ?? '').trim()).toBe('')
+    expect(live[1]).toContain(badge)
+    expect(stripAnsi(live[1] ?? '')).toMatch(/^  \/btw why did the build fail\?/u)
+    for (const row of live) {
+      expect(row).toContain(fill)
+      expect(visibleWidth(row)).toBe(60)
+    }
+
+    const folded = blockLines({ kind: 'aside', question: panel.question, text: panel.text }, theme, 60, { expandedOutput: false })
+    expect(folded).toHaveLength(1)
+    expect(folded[0]).toContain(fill)
+    expect(folded[0]).toContain(badge)
+    expect(visibleWidth(folded[0]!)).toBe(60)
+    expect(stripAnsi(folded[0]!)).toContain('▸ /btw why did the build fail?')
+
+    const expanded = blockLines({ kind: 'aside', question: panel.question, text: panel.text }, theme, 60, { expandedOutput: true })
+    expect(stripAnsi(expanded[0] ?? '').trim()).toBe('')
+    expect(stripAnsi(expanded.at(-1) ?? '').trim()).toBe('')
+    expect(stripAnsi(expanded[1] ?? '')).toContain('▾ /btw why did the build fail?')
+    expect(expanded.map(stripAnsi).join('\n')).toContain('The lockfile changed.')
+    for (const row of expanded) {
+      expect(row).toContain(fill)
+      expect(visibleWidth(row)).toBe(60)
+    }
   })
 })

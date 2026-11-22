@@ -75,11 +75,15 @@ describe('renderShell', () => {
     expect(lines.some(line => line.includes('src>file.ts'))).toBe(true)
   })
 
-  it('carries a fill and spans the full width in every state', () => {
+  it('carries a fill with top and bottom padding rows and spans the full width in every state', () => {
     const color = createTheme(true, true, 'dark')
     for (const status of ['running', 'ok', 'error'] as const) {
       const fill = status === 'running' ? 'toolPendingBg' : status === 'error' ? 'toolErrorBg' : 'toolSuccessBg'
       const painted = renderShell({ command: 'ls', output: 'a', status }, color, 40)
+      expect(stripAnsi(painted[0] ?? '').trim(), `${status} top pad`).toBe('')
+      expect(stripAnsi(painted.at(-1) ?? '').trim(), `${status} bottom pad`).toBe('')
+      expect(stripAnsi(painted[1] ?? '')).toContain('$ ls')
+      expect(stripAnsi(painted.at(-2) ?? '')).toContain('a')
       for (const row of painted) {
         expect(row, `${status} row`).toContain(color.getBgAnsi(fill))
         expect(visibleWidth(row), `${status} width`).toBe(40)
@@ -87,9 +91,17 @@ describe('renderShell', () => {
     }
   })
 
+  it('keeps single-row vertical padding when output contains only a trailing shell prompt', () => {
+    const lines = renderShell({ command: 'true', output: 'dsh>', status: 'ok' }, theme, 40).map(stripAnsi)
+    expect(lines).toHaveLength(3)
+    expect(lines[0]!.trim()).toBe('')
+    expect(lines[1]!.trim()).toBe('$ true')
+    expect(lines[2]!.trim()).toBe('')
+  })
+
   it('paints the command in the shell ink rather than one flat title colour', () => {
     const color = createTheme(true, true, 'dark')
-    const head = renderShell({ command: 'ls', output: '', status: 'ok' }, color, 40)[0] ?? ''
+    const head = renderShell({ command: 'ls', output: '', status: 'ok' }, color, 40)[1] ?? ''
     expect(head).toContain(color.getFgAnsi('shellMode'))
   })
 })

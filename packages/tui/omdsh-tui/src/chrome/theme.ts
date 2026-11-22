@@ -78,6 +78,7 @@ export type ThemeColor =
   | 'toolSuccessBg'
   | 'toolAltBg'
   | 'toolErrorBg'
+  | 'asideBg'
   | 'toolTitle'
   | 'toolOutput'
   | 'toolDiffAdded'
@@ -117,7 +118,7 @@ const DARK_PALETTE: Record<ThemeColor, Swatch> = {
   success: '#a6e3a1', error: '#f38ba8', warning: '#f9e2af',
   muted: '#bac2de', dim: '#9399b2', text: '',
   userMessageText: '#cdd6f4', userMessageBg: '#20283f',
-  toolPendingBg: '#313244', toolSuccessBg: '#293b35', toolAltBg: '#272938', toolErrorBg: '#462d39',
+  toolPendingBg: '#313244', toolSuccessBg: '#293b35', toolAltBg: '#272938', toolErrorBg: '#462d39', asideBg: '#2b243b',
   toolTitle: '#cdd6f4', toolOutput: '#bac2de',
   toolDiffAdded: '#a6e3a1', toolDiffRemoved: '#f38ba8', toolDiffContext: '#bac2de',
   mdHeading: '#cdd6f4', mdLink: '#89b4fa', mdLinkUrl: '#9399b2', mdCode: '#cba6f7',
@@ -134,7 +135,7 @@ const LIGHT_PALETTE: Record<ThemeColor, Swatch> = {
   success: '#386b35', error: '#b52e4d', warning: '#805d16',
   muted: '#5c5f77', dim: '#6c6f85', text: '',
   userMessageText: '#4c4f69', userMessageBg: '#e6ecfb',
-  toolPendingBg: '#e6e9ef', toolSuccessBg: '#e0eadf', toolAltBg: '#eff1f5', toolErrorBg: '#f2e2e7',
+  toolPendingBg: '#e6e9ef', toolSuccessBg: '#e0eadf', toolAltBg: '#eff1f5', toolErrorBg: '#f2e2e7', asideBg: '#efe9f7',
   toolTitle: '#4c4f69', toolOutput: '#5c5f77',
   toolDiffAdded: '#386b35', toolDiffRemoved: '#b52e4d', toolDiffContext: '#5c5f77',
   mdHeading: '#4c4f69', mdLink: '#245ac7', mdLinkUrl: '#6c6f85', mdCode: '#783ab0',
@@ -181,6 +182,7 @@ const DARK_ANSI16: Record<ThemeColor, string> = {
   toolSuccessBg: '30',
   toolAltBg: '30',
   toolErrorBg: '30',
+  asideBg: '30',
   toolTitle: '37',
   toolOutput: '37',
   toolDiffAdded: '32',
@@ -227,6 +229,7 @@ const LIGHT_ANSI16: Record<ThemeColor, string> = {
   toolSuccessBg: '37',
   toolAltBg: '37',
   toolErrorBg: '37',
+  asideBg: '37',
   toolTitle: '30',
   toolOutput: '30',
   toolDiffAdded: '30',
@@ -600,6 +603,8 @@ const SYSTEM_ERROR_RED: Rgb = { r: 0xff, g: 0x5f, b: 0x5f }
 const SYSTEM_SUCCESS_GREEN: Rgb = { r: 0x4a, g: 0xc8, b: 0x7a }
 /** The fixed blue a `system` notice surface mixes toward when the palette has none. */
 const SYSTEM_NOTICE_BLUE: Rgb = { r: 0x6f, g: 0xa8, b: 0xff }
+/** The fixed purple a `system` aside surface mixes toward when the palette has none. */
+const SYSTEM_ASIDE_PURPLE: Rgb = { r: 0xb4, g: 0x82, b: 0xf0 }
 
 /**
  * How far a card may move from the terminal background toward a state hue.
@@ -734,6 +739,7 @@ function systemPalette(terminal: TerminalColors | undefined): Record<ThemeColor,
   const accent = terminal?.palette?.[4] ?? SYSTEM_NOTICE_BLUE
   const error = terminal?.palette?.[1] ?? SYSTEM_ERROR_RED
   const successInk = terminal?.palette?.[2] ?? SYSTEM_SUCCESS_GREEN
+  const asideInk = terminal?.palette?.[5] ?? SYSTEM_ASIDE_PURPLE
   /**
    * A state fill carries its own hue, the way the shipped palettes do.
    *
@@ -766,7 +772,8 @@ function systemPalette(terminal: TerminalColors | undefined): Record<ThemeColor,
   // Supplementary neutral surfaces retain the terminal's own hue.
   const alt = toHex(liftedToLuminance(background, swatchLuminance('toolAltBg')))
   const errorCard = stateCard(error, target('error'))
-  const cardFills: readonly Rgb[] = [pending, success, alt, errorCard].map(hexToRgb).map(([r, g, b]) => ({ r, g, b }))
+  const asideCard = stateCard(asideInk, swatchLuminance('asideBg'))
+  const cardFills: readonly Rgb[] = [pending, success, alt, errorCard, asideCard].map(hexToRgb).map(([r, g, b]) => ({ r, g, b }))
   /**
    * The contrast the shipped `dim` reached against the shipped cards.
    *
@@ -777,7 +784,7 @@ function systemPalette(terminal: TerminalColors | undefined): Record<ThemeColor,
    */
   const shippedDimContrast = (): number => {
     const [r, g, b] = hexToRgb(base.dim as string)
-    const shippedCards: readonly Rgb[] = (['toolPendingBg', 'toolSuccessBg', 'toolAltBg', 'toolErrorBg'] as const)
+    const shippedCards: readonly Rgb[] = (['toolPendingBg', 'toolSuccessBg', 'toolAltBg', 'toolErrorBg', 'asideBg'] as const)
       .map(color => {
         const [cr, cg, cb] = hexToRgb(base[color] as string)
         return { r: cr, g: cg, b: cb }
@@ -800,6 +807,7 @@ function systemPalette(terminal: TerminalColors | undefined): Record<ThemeColor,
     toolSuccessBg: success,
     toolAltBg: alt,
     toolErrorBg: errorCard,
+    asideBg: asideCard,
   }
 }
 
