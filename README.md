@@ -12,11 +12,9 @@ oh-my-dsh is a terminal coding agent built on [DeepSeek Harness](https://github.
 
 </div>
 
-[![omdsh in Kaku — reading the README, replying, and folding completed work](apps/site/public/omdsh-demo.gif)](apps/site/public/omdsh-demo.mp4)
+https://github.com/user-attachments/assets/bedf83db-df50-43e4-a786-61ad42cf5a7d
 
-A 26-second terminal recording (captured with v0.22.0) shows omdsh reading the repository README and replying, folding the completed work into a duration summary, then reopening thinking and tool rows for review. The input box and status footer stay anchored at the bottom, showing context usage, cache hits, first-token latency, and token throughput. Click the preview for the full-resolution video.
-
-<!-- User-recorded demo from iShot_2026-11-06_19.46.27.mp4, supplied on 2026-11-06. The video shows v0.22.0, deepseek-flash, and high reasoning. Original MP4 preserved at 1810 × 1276, 30 fps, 26.3 seconds. GIF and poster are derived from that recording. -->
+A 72-second walkthrough (captured with v0.29.2) showcases omdsh across DeepSeek Harness agent presets (`Standard`, `PTC`, `Minimal`, `Creator`), live `/model`, `/settings` (all six sections with instant Catppuccin Dark and Light switching), `/plugins` bundles, `/mcp` servers, daily terminal craft (`!shell`, `@` mentions, `/btw`, `/diff`, clickable `#L` file previews), and autonomy workflows (`/permission` Auto review, `/team`, `/trajectory`, session branches, and `Alt+R` file recovery).
 
 ## Quick start
 

@@ -12,11 +12,9 @@ oh-my-dsh 是基于 [DeepSeek Harness](https://github.com/deepseek-ai/deepseek-h
 
 </div>
 
-[![omdsh 在 Kaku 中读取 README、回复并折叠已完成的过程](apps/site/public/omdsh-demo.gif)](apps/site/public/omdsh-demo.mp4)
+https://github.com/user-attachments/assets/bedf83db-df50-43e4-a786-61ad42cf5a7d
 
-这段约 26 秒的真实终端录屏（录制于 v0.22.0）展示了 omdsh 读取仓库 README 并回复，完成后将过程收起为耗时摘要，再展开思考与工具行回顾执行细节。输入框与状态栏固定在底部，实时展示上下文占用、缓存命中率、首字延迟和输出速度。点击预览可查看全分辨率视频。
-
-<!-- 用户于 2026-11-06 提供的实录素材 iShot_2026-11-06_19.46.27.mp4。画面显示 v0.22.0、deepseek-flash 和 high 推理强度。保留原始 MP4，1810 × 1276、30 fps、26.3 秒。GIF 与封面均从该录屏生成。 -->
+这段 72 秒的完整展示（基于 v0.29.2 真实终端采集）覆盖了 omdsh 对 DeepSeek Harness 四大 Agent 预设（`Standard`、`PTC`、`Minimal`、`Creator`）、`/model` 模型切换、完整六分组 `/settings`（含 Catppuccin 深浅配色实时生效）、`/plugins` 扩展包与 `/mcp` 实时服务，以及日常终端体验（`!shell`、`@` 引用、`/btw`、`/diff`、`#L` 源码预览）和自主协作与恢复能力（`/permission` Auto review、`/team`、`/trajectory`、会话树分支与 `Alt+R` 文件快照恢复）。
 
 ## 快速开始
 
