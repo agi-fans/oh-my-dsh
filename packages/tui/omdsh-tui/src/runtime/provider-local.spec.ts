@@ -6576,6 +6576,7 @@ describe('wheel acceleration option', () => {
   }
 
   it.each([false, true] as const)('moves a flat three lines per event when acceleration is off (wheelAcceleration=%s)', accel => {
+    vi.useFakeTimers()
     const term = new ScrollingTerminal(80, 20)
     const tui = new LocalTui(term, 'm', false, 'dark', copyToClipboard, { wheelAcceleration: accel })
     try {
@@ -6587,7 +6588,7 @@ describe('wheel acceleration option', () => {
       press(term as never, wheelUp)
       const after = term.visible().findIndex(row => row.includes(before!.label))
       expect(after - before!.at).toBe(accel ? 1 : 3)
-    } finally { tui.dispose() }
+    } finally { tui.dispose(); vi.useRealTimers() }
   })
 })
 
