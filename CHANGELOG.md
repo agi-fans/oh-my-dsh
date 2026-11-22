@@ -6,6 +6,10 @@ The format is based on [Keep a Changelog], and this project adheres to [Semantic
 
 ## [Unreleased]
 
+### Fixed
+
+- Aligned in-turn process notices (such as background job settlement rows) to the standard two-cell process margin instead of column 0, and styled intentionally stopped (`killed`) background job notices as neutral info rather than red errors.
+
 ## [0.29.3] - 2026-11-22
 
 ### Changed

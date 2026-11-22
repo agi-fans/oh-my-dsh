@@ -666,7 +666,7 @@ export class SessionRuntime {
             ...(/^(bash|pwsh)$/u.test(job.kind) && (job.status === 'completed' || job.status === 'failed' || job.status === 'killed')
               ? { job: { id: job.id, label: job.label, status: job.status, startedAt: job.startedAt, ...(job.detail === undefined ? {} : { detail: job.detail }) } }
               : {}),
-            ...(job.status === 'failed' || job.status === 'killed' ? { level: 'error' as const } : {}),
+            ...(job.status === 'failed' ? { level: 'error' as const } : {}),
           })
         }
       }))

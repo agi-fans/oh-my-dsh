@@ -896,6 +896,15 @@ describe('SessionRuntime workspace claim', () => {
       currentSelection: () => ({ provider: 'deepseek-official', model: 'deepseek-v4-pro' }),
     })
     ctx.provide('subagents', { listDescendants: async () => [], sendMessage: vi.fn(async () => 'sent-1') })
+    const jobListeners: Array<(event: unknown) => void> = []
+    ctx.provide('jobs', {
+      events: {
+        subscribe: (_filter: unknown, listener: (event: unknown) => void) => {
+          jobListeners.push(listener)
+          return () => {}
+        },
+      },
+    } as never)
     if (registry !== undefined) ctx.provide('workspaceRegistry', registry)
     const calls: string[] = []
     const tui = new Proxy({ ...stubTui(), setModel: () => { calls.push('model') }, replaceSession: vi.fn(() => { calls.push('transcript') }) } as unknown as Record<string, unknown>, {
@@ -903,8 +912,28 @@ describe('SessionRuntime workspace claim', () => {
         return prop in target ? target[prop] : () => () => {}
       },
     }) as unknown as TuiService
-    return { ctx, agentCtx, calls, tui, runtime: new SessionRuntime(ctx, tui) }
+    return { ctx, agentCtx, calls, tui, jobListeners, runtime: new SessionRuntime(ctx, tui) }
   }
+
+  it('reports killed background jobs neutrally while keeping failed jobs at error level', async () => {
+    const h = await harness('/tmp/omdsh-job-notices')
+    try {
+      await h.runtime.start()
+      const owner = h.runtime.agent!.session.id
+      Object.assign(h.ctx.agents, { get: (id: unknown) => (id === owner ? h.runtime.agent : undefined) })
+      const emit = (job: Record<string, unknown>) => {
+        for (const listener of h.jobListeners) listener({ type: 'settled', job })
+      }
+      emit({ id: 'bash-1', kind: 'bash', label: 'cd ~/model', status: 'killed', detail: 'signal: SIGTERM', startedAt: 1, owner })
+      emit({ id: 'bash-2', kind: 'bash', label: 'pnpm test', status: 'failed', detail: 'exit code: 2', startedAt: 2, owner })
+      const noticeCalls = vi.mocked(h.tui.notice).mock.calls
+      const stopped = noticeCalls.find(([text]) => text.includes('bash-1 stopped'))
+      const failed = noticeCalls.find(([text]) => text.includes('bash-2 failed'))
+      expect(stopped?.[1]).toMatchObject({ process: true, processSource: 'job:bash-1' })
+      expect(stopped?.[1]?.level).toBeUndefined()
+      expect(failed?.[1]).toMatchObject({ process: true, processSource: 'job:bash-2', level: 'error' })
+    } finally { await h.runtime.dispose(); await h.ctx.fiber.dispose(); await h.agentCtx.fiber.dispose() }
+  })
 
   it('publishes the live model before a default save failure and retries without another selection event', async () => {
     const h = await harness('/tmp/omdsh-model-retry')

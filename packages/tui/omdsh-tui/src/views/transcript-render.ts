@@ -916,7 +916,7 @@ function processNoticeLine(block: Extract<Block, { kind: 'notice' }>, theme: The
   const color = block.level === 'error' ? 'error' : 'muted'
   const head = indent + (block.level === 'error' ? theme.fg(color, SYMBOL.error) + ' ' : '')
   const room = processRoom(width, head)
-  return padToWidth(truncateToWidth(head + theme.fg(color, truncateToWidth(block.text.split('\n')[0] ?? '', room)), width), width)
+  return padToWidth(truncateToWidth(head + theme.fg(color, truncateToWidth(block.text.split('\n')[0] ?? '', room)), Math.max(1, width - 2)), width)
 }
 
 /**
@@ -1045,7 +1045,9 @@ export function blockLines(
   }
   if (block.kind === 'shell') return renderShell(block, theme, width)
   if (block.boundary === true) return [renderTranscriptBoundary(block.text, theme, width)]
-  if (block.process !== undefined && block.framed !== true) return [processNoticeLine(block, theme, width, '')]
+  if (block.process !== undefined && block.framed !== true) {
+    return [processNoticeLine(block, theme, width, width > ASSISTANT_PADDING_X * 2 ? ' '.repeat(ASSISTANT_PADDING_X) : '')]
+  }
   if (block.detail !== undefined) {
     const head = '  ' + theme.fg('dim', block.text)
     return expandedOutput
