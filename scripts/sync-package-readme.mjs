@@ -16,7 +16,15 @@ function isRelativeDestination(destination) {
 }
 
 export function renderPackageReadme(source) {
-  const linked = source.replace(
+  const withVideoPosters = source.replace(
+    /^<!--\s*npm-video-poster:\s*(\S+)\s*\|\s*(.+?)\s*-->\n+(https:\/\/\S+)$/gmu,
+    (_match, posterPath, altText, videoUrl) => {
+      const normalized = posterPath.replace(/^\.\//u, '')
+      const imageUrl = isRelativeDestination(normalized) ? `${repositoryRawBase}/${normalized}` : normalized
+      return `[![${altText.trim()}](${imageUrl})](${videoUrl})`
+    },
+  )
+  const linked = withVideoPosters.replace(
     /\]\(([^)\n]+)\)/gu,
     (match, destinationWithTitle) => {
       const destinationMatch = /^(\S+)(.*)$/su.exec(destinationWithTitle)

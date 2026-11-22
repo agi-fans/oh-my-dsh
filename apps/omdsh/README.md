@@ -14,7 +14,7 @@ oh-my-dsh is a terminal coding agent built on [DeepSeek Harness](https://github.
 
 </div>
 
-https://github.com/user-attachments/assets/bedf83db-df50-43e4-a786-61ad42cf5a7d
+[![Watch the 72-second oh-my-dsh walkthrough](https://raw.githubusercontent.com/agi-fans/oh-my-dsh/main/apps/site/public/omdsh-promo-poster.png)](https://github.com/user-attachments/assets/bedf83db-df50-43e4-a786-61ad42cf5a7d)
 
 A 72-second walkthrough (captured with v0.29.2) showcases omdsh across DeepSeek Harness agent presets (`Standard`, `PTC`, `Minimal`, `Creator`), live `/model`, `/settings` (all six sections with instant Catppuccin Dark and Light switching), `/plugins` bundles, `/mcp` servers, daily terminal craft (`!shell`, `@` mentions, `/btw`, `/diff`, clickable `#L` file previews), and autonomy workflows (`/permission` Auto review, `/team`, `/trajectory`, session branches, and `Alt+R` file recovery).
 
