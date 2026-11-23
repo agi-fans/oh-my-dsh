@@ -55,7 +55,7 @@ A minimal plugin needs three files: `package.json`, `cordis.patch.yml`, and `ind
     }
   },
   "peerDependencies": {
-    "@deepseek-ai/cordis": "~4.1.0",
+    "@deepseek-ai/cordis": "~4.2.0-alpha.1",
     "@deepseek-ai/dsh-commands": "<DSH version matching your omdsh>"
   }
 }

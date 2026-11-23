@@ -10,7 +10,7 @@ This tutorial walks you through one complete coding loop in about five minutes: 
 
 Before you start, make sure you have:
 
-- Node.js 22.19+ (22.x) or Node.js 24+ (check with `node -v`)
+- Node.js 24.22.3+ (24.x) or Node.js 26.13.1+ (check with `node -v`)
 - An interactive terminal (macOS Terminal, iTerm2, Ghostty, Kitty, WezTerm, Windows Terminal, and similar)
 - A DeepSeek account or a DeepSeek API key (other providers are supported too)
 

@@ -671,7 +671,7 @@ describe('session transcript boundaries', () => {
       expect(catalog.mock.calls.at(-1)![0].find(command => command.name === 'resume')?.complete?.('')?.map(row => row.value)).toEqual(['other'])
 
       f.ctx.provide('workingDirectory', { get: () => process.cwd() } as never)
-      f.runtime.agent!.session.append('working-directory/change', { cwd: process.cwd() })
+      f.runtime.agent!.session.append('workspace-root/change', { cwd: process.cwd() })
       await vi.waitFor(() => {
         expect(f.runtime.recentSessions.map(row => row.id)).toEqual(['local'])
         expect(catalog.mock.calls.at(-1)![0].find(command => command.name === 'resume')?.complete?.('')?.map(row => row.value)).toEqual(['local'])

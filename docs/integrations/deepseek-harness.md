@@ -1,14 +1,15 @@
 # DeepSeek Harness 集成与兼容
 
-当前工作区为 omdsh `0.28.0` 加 Unreleased 改动，直接 DSH 依赖为 `0.2.2-rc.5`。升级流程见 [dsh-upgrade 技能](../../.agents/skills/dsh-upgrade/SKILL.md)，产品架构见[站点文档](../../apps/site/content/zh/architecture.md)。
+当前工作区为 omdsh `0.29.4` 加 Unreleased 改动，直接 DSH 依赖为 `0.2.3-alpha.2`。升级流程见 [dsh-upgrade 技能](../../.agents/skills/dsh-upgrade/SKILL.md)，产品架构见[站点文档](../../apps/site/content/zh/architecture.md)。
 
 ## 依赖基线
 
 | 层 | 当前版本与来源 |
 | --- | --- |
-| omdsh 根、CLI、TUI | `0.28.0`，保持同步，后续行为变更记录在 Unreleased |
-| 直接 DSH 运行时依赖 | npm `0.2.2-rc.5`，锁文件中 191 个 DSH 包统一使用该版本 |
-| Cordis / Loader / Timer / Schemastery | `4.1.0` / `1.1.0` / `1.2.0` / `3.19.0`，Cosmokit 为 `1.9.0` |
+| omdsh 根、CLI、TUI | `0.29.4`，保持同步，后续行为变更记录在 Unreleased |
+| 直接 DSH 运行时依赖 | npm `0.2.3-alpha.2`，锁文件中 192 个 DSH 包统一使用该版本 |
+| Cordis / Loader / Timer / Schemastery | `4.2.0-alpha.1` / `1.2.0-alpha.1` / `1.3.0-alpha.1` / `3.20.0-alpha.1`，Cosmokit 为 `1.10.0-alpha.1`，`node-addon-require-builtin` 为 `^0.1.10` |
+| Node.js 引擎区间 | `^24.22.3 \|\| >=26.13.1`（manifests、CI 与 `omdsh doctor` 一致） |
 | pi-ai | lockfile 解析到 `@earendil-works/pi-ai@1.5.0` |
 
 事实来源是[CLI manifest](../../apps/omdsh/package.json)、[TUI manifest](../../packages/tui/omdsh-tui/package.json)、[lockfile](../../pnpm-lock.yaml)和[产品组合](../../apps/omdsh/config/cordis.yml)。`refs/` 仅用于研究，不参与解析、编译、测试或运行；`examples/hello` 是独立插件示例，不是 workspace 成员。
@@ -27,9 +28,11 @@
 
 升级至 [`0.2.2-rc.5`](https://github.com/deepseek-ai/deepseek-harness/compare/dsh-v0.2.2-rc.3...dsh-v0.2.2-rc.5) 后，DeepSeek 流式拒答以 `CONTENT_REFUSED` 结束。终端展示提供方的错误消息，`omdsh exec --json` 会在 `turn.finished` 和 `run.finished` 中透传该错误码。产品组合继续显式选择 `deepseek-search-api` 和 `deepseek-fetch-api`。Harness 会在未指定搜索提供方时按模型路由选择搜索后端。
 
+2026-11-23 升级至 [`0.2.3-alpha.2`](https://github.com/deepseek-ai/deepseek-harness/releases/tag/dsh-v0.2.3-alpha.2)，同步 Cordis `4.2.0-alpha.1` 一族、`node-addon-require-builtin@^0.1.10` 与 Node.js `^24.22.3 || >=26.13.1` 引擎要求（`doctor` 按严格 SemVer 2.0.0 校验）。组合新增 `@deepseek-ai/dsh-deepseek-auth` 与 `@deepseek-ai/dsh-tool-cordis/host`（在 Host 侧注册 `Service`、`Event`、`Config`、`Runtime`、`Tool` 五个首方检查提供方），移除上游已删除的 `@deepseek-ai/dsh-tool-working-directory`；启动前自动将旧 Profile/Home 补丁中的 DeepSeek `imageMaxBytes` 迁移到 `imageTargetBytes`（保留显式新键，超过 32 MiB 时给出明确诊断）；实时会话目录改由 `workspace-root/change` 拥有（旧 worktree 会话恢复回原项目、含新事件的日志旧版拒读），历史工具卡路径回放同时兼容两种事件；Git Worktree 工具对齐 `enter_worktree` / `exit_worktree`；`ProfileContext.overlayPaths` 将启动时的运行期叠加补丁落盘为临时文件并在异常或释放时安全清理；`ptc-runtime` 跟随上游默认 `persistent-in-memory` scoped REPL 执行模式（跨调用保留内存状态且不接受顶层 `return`）；Creator 预设对齐合并后的 `cordis_inspect`；目录 `pi-ai` 模型开放 `reasoningEfforts` 编辑并在未改动模型成员与顺序时通过 `modelOverrides` 持久化；`/mcp` 为静态服务器明确标注连接状态未知，并为 `waiting-authorization` 托管服务器接入浏览器 OAuth 授权、取消与退出操作；子代理模型选择说明改为实时作用于所有会话的下一次委派。完整迁移与验证记录见[升级记录](../history/dsh-0.2.3-alpha.2-upgrade.md)。
+
 ## 工作目录
 
-`working_directory` 查询当前目录，`cd` 切换到已经存在的目录；原始 `session.header.cwd` 保持不变。TUI 从 `workingDirectory` 服务读取当前值，文件浏览、diff、附件、补全、Skill 查询、新终端和底部路径跟随切换。现有 shell 不移动，会话归类与原始 workspace 权限不扩大。恢复或 fork 时重放 `working-directory/change`，查看本地子代理时显示该子代理自己的当前目录。
+上游自 `0.2.3-alpha.2` 移除独立的 `working_directory` 工具（`dsh-tool-working-directory`），实时会话工作目录统一由 `dsh-working-directory` 的 anchored workspace root 能力（例如 `enter_worktree` / `exit_worktree`）维护，原始 `session.header.cwd` 保持不变。TUI 从 `workingDirectory` 服务读取当前值，文件浏览、diff、附件、补全、Skill 查询、新终端和底部路径跟随切换。恢复或 fork 时实时目录与写边界仅重放 `workspace-root/change`（旧版写入 `working-directory/change` 的 worktree 会话会回到原项目目录，含 `workspace-root/change` 的新日志会被旧版读取器拒绝）；历史工具卡的相对文件定位同时识别两种事件，保证点击旧会话工具卡仍指向当初执行时的目录。查看本地子代理时显示该子代理自己的当前目录。
 
 ## 问答兼容
 
@@ -79,7 +82,7 @@ Codex 与 Claude Code hooks 已提供 Settings 中的显式启用入口；time-c
 
 ## 升级证据与验证
 
-Git Worktrees bundle（`@deepseek-ai/dsh-experimental-tool-worktree`）在 alpha.2 初次随产品安装时默认关闭，自 `0.2.2-rc.3` 起改为默认启用（与默认启用的 `@deepseek-ai/dsh-experimental-auto-review` 一并随新建／升级 Profile 预置）。启用时 omdsh 会向 Profile 补丁单次写入 `worktree.retainOnArchive: true`（在 `/settings → Plugins → Tools` 公开为 **Keep worktrees when archiving**），使 `/resume` 归档会话时默认保留已创建的 worktree；创建走公开 `create_worktree` 工具与 `worktrees.create()`，通过执行 provider 在当前 Access 下读取 Git 的 NUL porcelain registry，并使用 `working_directory`（`workingDirectory.set()`）切换或返回，`/resume` 归档与恢复同步通知 `workspaceRegistry`。Session Library 按 `formatStatus` 读取历史 header，恢复时确认迁移，取代启动时的批量写入迁移。
+Git Worktrees bundle（`@deepseek-ai/dsh-experimental-tool-worktree`）在 alpha.2 初次随产品安装时默认关闭，自 `0.2.2-rc.3` 起改为默认启用（与默认启用的 `@deepseek-ai/dsh-experimental-auto-review` 一并随新建／升级 Profile 预置）。启用时 omdsh 会向 Profile 补丁单次写入 `worktree.retainOnArchive: true`（在 `/settings → Plugins → Tools` 公开为 **Keep worktrees when archiving**），使 `/resume` 归档会话时默认保留已创建的 worktree；自 `0.2.3-alpha.2` 起模型工具为 `enter_worktree` / `exit_worktree`，结合 `dsh-working-directory` 的 `workspace-root/change` 切换或返回，`/resume` 归档与恢复同步通知 `workspaceRegistry`。Session Library 按 `formatStatus` 读取历史 header，恢复时确认迁移，取代启动时的批量写入迁移。
 
 思考沿用 Turn 中的原有展示和过程展开。产品不挂载独立思考阅读命令、translator 或翻译设置；已有 Session plugin records 保留在日志中。
 

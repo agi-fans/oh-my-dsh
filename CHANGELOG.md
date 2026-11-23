@@ -6,6 +6,11 @@ The format is based on [Keep a Changelog], and this project adheres to [Semantic
 
 ## [Unreleased]
 
+### Changed
+
+- Upgraded the pinned DeepSeek Harness cohort to `0.2.3-alpha.2` (Cordis `4.2.0-alpha.1`, Loader `1.2.0-alpha.1`, Timer `1.3.0-alpha.1`, Schemastery `3.20.0-alpha.1`, `node-addon-require-builtin@^0.1.10`) and raised the supported Node.js version requirement to `^24.22.3 || >=26.13.1` across manifests, CI, and `omdsh doctor`.
+- Aligned runtime composition and TUI behavior with DeepSeek Harness `0.2.3-alpha.2`: mounted `@deepseek-ai/dsh-deepseek-auth` and `@deepseek-ai/dsh-tool-cordis/host` (supplying `Service`, `Event`, `Config`, `Runtime`, and `Tool` providers to the `Creator` preset’s unified `cordis_inspect` tool), removed the retired `@deepseek-ai/dsh-tool-working-directory` package and migrated live session directory tracking to `workspace-root/change` (pre-`0.2.3` worktree sessions resume in their original project directory and re-enter via `enter_worktree`, logs written with `workspace-root/change` are rejected by older omdsh/DSH readers, while historical tool cards continue resolving relative paths across both event formats), aligned Git Worktrees with `enter_worktree` / `exit_worktree`, let Node PTC follow upstream’s `persistent-in-memory` scoped REPL default (retaining variables across `run_code` calls in a session without top-level `return`), automatically migrated legacy DeepSeek `imageMaxBytes` profile overrides to `imageTargetBytes` with 32 MiB diagnostics, enabled catalog `pi-ai` `reasoningEfforts` editing through `modelOverrides` without pinning the catalog, clarified static `/mcp` connection-status diagnostics and added browser OAuth authorization/cancellation/sign-out actions for `waiting-authorization` managed servers, and updated subagent model selection copy to reflect live per-delegation authorization across sessions.
+
 ## [0.29.4] - 2026-11-22
 
 ### Fixed

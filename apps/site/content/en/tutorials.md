@@ -10,7 +10,7 @@ These tutorials follow the order you actually grow into the tool: finish one rea
 
 ## Stage 1: Get started
 
-Before you begin, have Node.js 22.19+ (22.x) or Node.js 24+, an interactive terminal, and a DeepSeek account or API key ready.
+Before you begin, have Node.js 24.22.3+ (24.x) or Node.js 26.13.1+, an interactive terminal, and a DeepSeek account or API key ready.
 
 | Tutorial | What you will accomplish |
 |---|---|

@@ -49,7 +49,7 @@ DSH 官方客户端是 Web GUI，一个表面可以同时容纳侧栏、右栏�
 | `ui-sidebar-documentpreview` | 文档阅读器 |
 | `ui-sidebar-files` | `@` 补全与 `/diff` 文件列表 |
 | `ui-sidebar-terminal` | `!cmd`、`!!cmd` 原地 Shell 卡片；不提供独立终端控制台 |
-| `ui-workspace` `dsh-session-title-all-prompts-llm` `dsh-experimental-tool-worktree` | `/resume`（含搜索、pin、archive／恢复同步 `workspaceRegistry`、fork、默认开启的多轮自动标题刷新，以及默认启用 `create_worktree` 与归档保留 worktree 设置） |
+| `ui-workspace` `dsh-session-title-all-prompts-llm` `dsh-experimental-tool-worktree` | `/resume`（含搜索、pin、archive／恢复同步 `workspaceRegistry`、fork、默认开启的多轮自动标题刷新，以及默认启用 `enter_worktree` / `exit_worktree` 与归档保留 worktree 设置） |
 | `ui-schedule` | `/schedule` |
 | `ui-secret-mask` | 转录里绘制的用户消息；凭证尾部打码 |
 | `ui-theme` | `/settings → Terminal → Theme` |

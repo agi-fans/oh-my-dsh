@@ -702,7 +702,7 @@ export class SessionRuntime {
     this.#off.push(ctx.on('session/event', (session, event) => {
       const active = this.#active
       if (active === undefined) return
-      if (event.type === 'working-directory/change') {
+      if (event.type === 'workspace-root/change') {
         if (session === active.handle.agent.session || session.id === this.#inspectedId) {
           tui.setWorkingDirectory?.(currentWorkingDirectory(ctx, session), { root: session === active.handle.agent.session })
         }
@@ -2038,8 +2038,8 @@ export class SessionRuntime {
         const log = persistence === undefined ? undefined : await readColdSessionLog(persistence, SessionId(id))
         if (log === undefined) throw new Error('subagent transcript is unavailable')
         events = log.events.slice(log.inheritedEventCount)
-        const change = log.events.findLast(event => event.type === 'working-directory/change')
-        cwd = change?.type === 'working-directory/change' ? change.data.cwd : log.header.cwd
+        const change = log.events.findLast(event => event.type === 'workspace-root/change')
+        cwd = change?.type === 'workspace-root/change' ? change.data.cwd : log.header.cwd
         cwd ??= this.#active === undefined ? process.cwd() : currentWorkingDirectory(this.#ctx, this.#active.handle.agent.session)
       } catch {
         if (!this.#disposed && request === this.#inspectEpoch) {

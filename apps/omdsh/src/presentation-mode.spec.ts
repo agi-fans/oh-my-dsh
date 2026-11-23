@@ -1,6 +1,6 @@
 import { mkdtempSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
-import { basename, join } from 'node:path'
+import { join } from 'node:path'
 import { afterEach, describe, expect, it } from 'vitest'
 import { bootTuiTurn, requestToolNames } from './test-support/tui-boot.ts'
 
@@ -25,6 +25,25 @@ async function wireToolNames(preset: string): Promise<string[]> {
   return requestToolNames(turn.bodies[0])
 }
 
+function findToolResult(body: unknown, toolUseId: string): { text: string; isError: boolean } | undefined {
+  const messages = (body as { messages?: Array<{ content?: unknown }> } | undefined)?.messages ?? []
+  for (const message of messages) {
+    if (!Array.isArray(message.content)) continue
+    for (const block of message.content) {
+      if (typeof block !== 'object' || block === null) continue
+      const candidate = block as { type?: string; tool_use_id?: string; content?: unknown; is_error?: boolean }
+      if (candidate.type !== 'tool_result' || candidate.tool_use_id !== toolUseId) continue
+      const text = typeof candidate.content === 'string'
+        ? candidate.content
+        : Array.isArray(candidate.content)
+          ? candidate.content.map(part => typeof part === 'object' && part !== null && 'text' in part ? String((part as { text?: unknown }).text ?? '') : JSON.stringify(part)).join('\n')
+          : JSON.stringify(candidate.content)
+      return { text, isError: candidate.is_error === true }
+    }
+  }
+  return undefined
+}
+
 describe('preset tool presentation on the wire', () => {
   it('keeps pipe mode alive for a managed child and its settlement delivered to the parent', async () => {
     const turn = await bootTuiTurn({ preset: 'standard', home: temp('omdsh-managed-child-'), repeatLast: true,
@@ -36,15 +55,12 @@ describe('preset tool presentation on the wire', () => {
     expect(requests.length).toBeGreaterThanOrEqual(3)
   }, 180_000)
 
-  it('commits a working-directory change and sends the updated model context on the next request', async () => {
-    const cwd = temp('omdsh-current-directory-')
-    const turn = await bootTuiTurn({ preset: 'standard', home: temp('omdsh-working-directory-home-'),
-      toolCall: { name: 'working_directory', arguments: JSON.stringify({ cd: cwd }) } })
+  it('omits the retired working_directory tool and subagent cwd parameter', async () => {
+    const turn = await bootTuiTurn({ preset: 'standard', home: temp('omdsh-working-directory-home-') })
     expect(turn.status, turn.output.slice(-2000)).toBe(0)
-    expect(requestToolNames(turn.bodies[0])).toContain('working_directory')
-    const lastRequest = JSON.stringify(turn.bodies.at(-1))
-    expect(lastRequest).toContain(basename(cwd))
-    expect(lastRequest).toContain('The working directory changed')
+    expect(requestToolNames(turn.bodies[0])).not.toContain('working_directory')
+    const tools = (turn.bodies[0] as { tools: Array<{ name: string; input_schema: { properties: Record<string, unknown> } }> }).tools
+    expect(tools.find(tool => tool.name === 'subagent')?.input_schema.properties).not.toHaveProperty('cwd')
   }, 180_000)
 
   it('offers reminder tools to standard and hides them from minimal', async () => {
@@ -55,7 +71,8 @@ describe('preset tool presentation on the wire', () => {
     const minimal = await bootTuiTurn({ preset: 'minimal', home: temp('omdsh-schedule-minimal-') })
     expect(minimal.status, minimal.output.slice(-2000)).toBe(0)
     expect(requestToolNames(minimal.bodies[0])).not.toContain('schedule_create')
-    expect(requestToolNames(minimal.bodies[0])).not.toContain('create_worktree')
+    expect(requestToolNames(minimal.bodies[0])).not.toContain('enter_worktree')
+    expect(requestToolNames(minimal.bodies[0])).not.toContain('exit_worktree')
   }, 240_000)
 
   it('samples child model selection into new-session tools while fork keeps its parent route', async () => {
@@ -73,29 +90,64 @@ describe('preset tool presentation on the wire', () => {
     expect(fork.input_schema.properties).not.toHaveProperty('model')
   }, 180_000)
 
-  it('exposes Cordis management and published authoring skills', async () => {
-    const turn = await bootTuiTurn({ preset: 'cordis', home: temp('omdsh-cordis-skills-') })
+  it('exposes Cordis management, published authoring skills, and live Host inspect providers', async () => {
+    const turn = await bootTuiTurn({
+      preset: 'cordis',
+      home: temp('omdsh-cordis-skills-'),
+      toolCalls: [
+        { name: 'cordis_inspect', arguments: '{}' },
+        {
+          name: 'cordis_inspect',
+          arguments: JSON.stringify({ query: { platform: 'host', provider: 'Runtime', method: 'getVersion' } }),
+        },
+      ],
+    })
     expect(turn.status, turn.output.slice(-2000)).toBe(0)
     expect(requestToolNames(turn.bodies[0])).toContain('plugin_manager')
-    const body = JSON.stringify(turn.bodies[0])
-    expect(body).toContain('dsh-doc')
-    expect(body).not.toContain('cordis-plugin-development')
+    expect(requestToolNames(turn.bodies[0])).toContain('cordis_inspect')
+    const firstBody = JSON.stringify(turn.bodies[0])
+    expect(firstBody).toContain('dsh-doc')
+    expect(firstBody).not.toContain('cordis-plugin-development')
+    const directoryResult = findToolResult(turn.bodies[1], 'toolu_1')
+    expect(directoryResult?.isError).toBe(false)
+    for (const provider of ['Service', 'Event', 'Config', 'Runtime', 'Tool']) {
+      expect(directoryResult?.text, provider).toContain(provider)
+    }
+    const queryResult = findToolResult(turn.bodies[2], 'toolu_2')
+    expect(queryResult?.isError).toBe(false)
+    expect(queryResult?.text).toContain('0.2.3-alpha.2')
     expect(turn.output).not.toContain('did not activate')
   }, 180_000)
 
-  it('sends the PTC SDK form and no native orchestration tool for the code preset', async () => {
-    const names = await wireToolNames('code')
+  it('sends the PTC SDK form, hides native workflow tools, and retains in-memory REPL state across run_code calls', async () => {
+    const turn = await bootTuiTurn({
+      preset: 'code',
+      home: temp('omdsh-ptc-state-'),
+      toolCalls: [
+        { name: 'run_code', arguments: JSON.stringify({ description: 'Initialize REPL state', code: "const ptcState = 'retained-across-calls'; inspect('step1')" }) },
+        { name: 'run_code', arguments: JSON.stringify({ description: 'Read retained REPL state', code: 'inspect(ptcState)' }) },
+      ],
+    })
+    expect(turn.status, turn.output.slice(-2000)).toBe(0)
+    const names = requestToolNames(turn.bodies[0])
     expect(names).toContain('run_code')
     // The preset denies the host workflow tool: PTC would otherwise expose it as
     // a second model-authored orchestration surface in the generated SDK.
     expect(names).not.toContain('workflow_run')
     expect(names).not.toContain('ralph')
+    const firstResult = findToolResult(turn.bodies[2], 'toolu_1')
+    expect(firstResult?.isError).toBe(false)
+    expect(firstResult?.text).toContain('step1')
+    const secondResult = findToolResult(turn.bodies[2], 'toolu_2')
+    expect(secondResult?.isError).toBe(false)
+    expect(secondResult?.text).toContain('retained-across-calls')
   }, 180_000)
 
   it('sends the native catalog for the standard preset', async () => {
     const names = await wireToolNames('standard')
     expect(names).toContain('workflow_run')
-    expect(names).toContain('create_worktree')
+    expect(names).toContain('enter_worktree')
+    expect(names).toContain('exit_worktree')
     // Exactly one shell stack mounts per host: the bash tool gates off Windows
     // and its PowerShell twin gates off everything else.
     expect(names).toContain(process.platform === 'win32' ? 'pwsh' : 'bash')

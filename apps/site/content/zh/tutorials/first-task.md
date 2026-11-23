@@ -10,7 +10,7 @@ description: 安装 omdsh、完成登录与模型选择，让助手先读懂项�
 
 开始前确认本地满足以下条件：
 
-- Node.js 22.19+（22.x）或 Node.js 24+（可用 `node -v` 检查）
+- Node.js 24.22.3+（24.x）或 Node.js 26.13.1+（可用 `node -v` 检查）
 - 一个支持交互的终端（macOS Terminal / iTerm2 / Ghostty / Kitty / WezTerm / Windows Terminal 等均可）
 - 一个 DeepSeek 账户，或一个可用的 DeepSeek API Key（也支持其他模型服务商）
 

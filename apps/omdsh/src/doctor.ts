@@ -12,6 +12,10 @@ import {
 import { CREDENTIALS_FILENAME, parseCredentialsDocument } from '@deepseek-ai/dsh-credentials-local'
 import { imageProtocol } from '@agi-fans/dsh-tui'
 import { omdshHome } from './config-paths.ts'
+import {
+  formatDeepSeekImageLimitDiagnostic,
+  inspectDeepSeekImageLimits,
+} from './deepseek-config-migration.ts'
 import { DEFAULT_PROFILE_BUNDLES, INSTALL_ANCHOR, NAME, PRODUCT_BUNDLE, PROFILE_NAME } from './profile.ts'
 import { loadLspPatches } from './lsp-config.ts'
 import { loadMcpPatches } from './mcp-config.ts'
@@ -64,9 +68,21 @@ export function executableAvailable(command: string, cwd: string, environment: N
   }))
 }
 
-function nodeSupported(version: string): boolean {
-  const [major, minor] = version.replace(/^v/u, '').split('.').map(Number)
-  return major !== undefined && (major >= 24 || major === 22 && minor !== undefined && minor >= 19)
+/** Strict SemVer 2.0.0 check matching `engines.node` (`^24.22.3 || >=26.13.1`). */
+const SEMVER_PATTERN = /^v?(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)(?:-((?:0|[1-9]\d*|\d*[A-Za-z-][0-9A-Za-z-]*)(?:\.(?:0|[1-9]\d*|\d*[A-Za-z-][0-9A-Za-z-]*))*))?(?:\+([0-9A-Za-z-]+(?:\.[0-9A-Za-z-]+)*))?$/u
+
+export function nodeSupported(version: string): boolean {
+  const match = SEMVER_PATTERN.exec(version.trim())
+  if (match === null) return false
+  // Prerelease versions do not satisfy a release range (`^24.22.3 || >=26.13.1`);
+  // build metadata (`+...`) is ignored per SemVer 2.0.0.
+  if (match[4] !== undefined) return false
+  const major = Number(match[1])
+  const minor = Number(match[2])
+  const patch = Number(match[3])
+  if (major === 24) return minor > 22 || (minor === 22 && patch >= 3)
+  if (major === 26) return minor > 13 || (minor === 13 && patch >= 1)
+  return major > 26
 }
 
 /** Reports only local facts. A successful check never implies model, MCP or LSP connectivity. */
@@ -88,7 +104,7 @@ export async function runDoctor(options: DoctorOptions): Promise<DoctorReport> {
     } catch { add('environment', 'failed', 'Launch environment layers could not be loaded.', 'Repair project or Harness-home .env; bootstrap-only variables belong in the launching environment.') }
   }
   const nodeVersion = options.nodeVersion ?? process.versions.node
-  add('node', nodeSupported(nodeVersion) ? 'ok' : 'failed', `Node.js ${nodeVersion}`, 'Use Node.js 22.19+ on the 22.x line, or 24+.')
+  add('node', nodeSupported(nodeVersion) ? 'ok' : 'failed', `Node.js ${nodeVersion}`, 'Use Node.js 24.22.3+ on the 24.x line, or 26.13.1+.')
   try {
     if (!statSync(cwd).isDirectory()) throw new Error('not a directory')
     accessSync(cwd, constants.R_OK)
@@ -168,6 +184,20 @@ export async function runDoctor(options: DoctorOptions): Promise<DoctorReport> {
   } catch { add('composition', 'failed', 'Plugin rows could not be composed.', 'Repair the bundle or user patch layers.') }
   if (!profileReadable || checks.some(check => check.status === 'failed' && /^(?:bundle:|.*-patch|mcp-config|lsp-config)$/u.test(check.id))) {
     add('composition-coverage', 'not-checked', 'Only readable layers were inspected; this is not the complete launch composition.')
+  }
+  const deepSeekImageFindings = inspectDeepSeekImageLimits(entries.length > 0 ? entries : layers.flat())
+  const imageLimitFailures = deepSeekImageFindings
+    .filter(finding => finding.kind === 'legacy-oversize' || finding.kind === 'legacy-invalid' || finding.kind === 'target-oversize' || finding.kind === 'target-invalid')
+    .map(formatDeepSeekImageLimitDiagnostic)
+    .filter((message): message is string => message !== undefined)
+  const dynamicImageNotices = deepSeekImageFindings
+    .filter(finding => finding.kind === 'dynamic-expression')
+    .map(formatDeepSeekImageLimitDiagnostic)
+    .filter((message): message is string => message !== undefined)
+  if (imageLimitFailures.length > 0) {
+    add('deepseek-image-limit', 'failed', imageLimitFailures[0]!, 'Set imageTargetBytes to a positive integer no greater than 33554432 in cordis.patch.yml.')
+  } else if (dynamicImageNotices.length > 0) {
+    add('deepseek-image-limit', 'not-checked', dynamicImageNotices[0]!, 'Ensure dynamic !!js image limit expressions resolve to imageTargetBytes (a positive integer no greater than 33554432).')
   }
   let pluginIndex = 0
   try {

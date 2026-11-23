@@ -1,19 +1,14 @@
 /** Live MCP server management over dsh-mcp-manager and dsh-settings. */
 
 import type { Context } from '@deepseek-ai/cordis'
-import {
-  SERVER_NAME_PATTERN,
-  assertTemplateSyntax,
-  connectionStatusOf,
-  type McpConnectionStatus,
-  type McpProbeResult,
-} from '@deepseek-ai/dsh-mcp-client'
+import type { McpOAuthAttemptView, McpProbeResult } from '@deepseek-ai/dsh-mcp-client'
 import type {
   McpManagedServerEntry,
   McpManagedServerStatus,
   McpManagedServerView,
 } from '@deepseek-ai/dsh-mcp-manager'
 import type { SettingsDescriptor } from '@deepseek-ai/dsh-settings'
+import { openExternal } from '../commands/open-external.ts'
 import type { TuiPrompt } from '../definition.ts'
 import type { PluginSettingsEntry } from '../views/settings-list.ts'
 import { askPrompt, choosePrompt, confirmPrompt } from '../prompt-intents.ts'
@@ -45,12 +40,18 @@ function configuredServerMap(value: unknown): Record<string, Partial<McpManagedS
   return result
 }
 
-/** Read live connection status for a static `@deepseek-ai/dsh-mcp-client` Loader entry when mounted. */
-export function staticMcpConnectionStatus(ctx: Context, entryId: string): McpConnectionStatus | undefined {
-  const loader = ctx.get('loader')
-  if (loader === undefined) return undefined
-  const entry = [...loader.entries()].find(candidate => candidate.options.id === entryId)
-  return entry?.fiber === undefined ? undefined : connectionStatusOf(entry.fiber)?.current()
+/** Matches `dsh-mcp-client`'s serverName constraint before submitting a settings write. */
+const SERVER_NAME_PATTERN = /^[A-Za-z0-9_-]{1,32}$/
+
+const CREDENTIAL_TOKEN_EXACT = /^\$\{credential:[A-Za-z_][A-Za-z0-9_]*\}$/
+const SUSPECT_TEMPLATE = /\$\{[^}]*\}/g
+
+function assertTemplateSyntax(value: string, where: string): void {
+  for (const occurrence of value.matchAll(SUSPECT_TEMPLATE)) {
+    if (!CREDENTIAL_TOKEN_EXACT.test(occurrence[0])) {
+      throw new Error(`${where}: "${occurrence[0]}" is not a template token — use \${credential:REF}`)
+    }
+  }
 }
 
 /** Format any managed or client MCP status for single-line summaries and diagnostics. */
@@ -70,6 +71,10 @@ export function formatMcpStatus(
       return status.lastError
         ? `${t('waiting for credentials')} · ${status.lastError}`
         : t('waiting for credentials')
+    case 'waiting-authorization':
+      return status.lastError
+        ? `${t('waiting for authorization')} · ${status.lastError}`
+        : t('waiting for authorization')
     case 'reconnecting':
       return `${t('reconnecting ({attempt}/{max})', { attempt: status.attempt, max: status.maxAttempts })}${status.lastError ? ` · ${status.lastError}` : ''}`
     case 'disabled':
@@ -377,13 +382,250 @@ export async function promptAddMcpServer(
   return name
 }
 
-/** Manage one runtime MCP server: inspect status, enable/disable, probe, restart, or remove. */
+const OAUTH_ACTIVE_PHASES = new Set<McpOAuthAttemptView['phase']>(['starting', 'waiting-browser', 'exchanging', 'committing'])
+
+function mcpAuthorizationOutcome(
+  name: string,
+  attempt: McpOAuthAttemptView | undefined,
+  t: TranslateFn,
+): string | undefined {
+  if (attempt === undefined) return undefined
+  if (attempt.phase === 'authorized') return t('Authorized MCP server "{name}".', { name })
+  if (attempt.phase === 'cancelled') return t('Authorization cancelled.')
+  if (attempt.phase === 'failed') {
+    return t('Authorization failed: {message}', { message: attempt.lastError ?? t('unknown error') })
+  }
+  return undefined
+}
+
+async function cancelMcpAuthorization(
+  manager: Context['mcpManager'],
+  name: string,
+  attemptId: McpOAuthAttemptView['id'],
+  t: TranslateFn,
+): Promise<string> {
+  if (typeof manager.cancelAuthorization !== 'function') {
+    return t('Authorization cancelled.')
+  }
+  try {
+    await manager.cancelAuthorization(name, attemptId)
+  } catch (error) {
+    return t('Failed to cancel authorization: {message}', {
+      message: error instanceof Error ? error.message : String(error),
+    })
+  }
+  const view = manager.list().find(item => item.name === name)
+  const latest = view?.authorization
+  if (latest !== undefined && latest.id === attemptId) {
+    return mcpAuthorizationOutcome(name, latest, t) ?? t('Authorization cancelled.')
+  }
+  return view?.status.state === 'connected'
+    ? t('Authorized MCP server "{name}".', { name })
+    : t('Authorization cancelled.')
+}
+
+async function pollMcpAttempt(
+  manager: Context['mcpManager'],
+  name: string,
+  signal: AbortSignal,
+  onSnapshot: (view: McpManagedServerView | undefined) => boolean,
+): Promise<void> {
+  while (!signal.aborted) {
+    await new Promise<void>((resolve) => {
+      const timer = setTimeout(() => { signal.removeEventListener('abort', onAbort); resolve() }, 250)
+      const onAbort = () => { clearTimeout(timer); resolve() }
+      signal.addEventListener('abort', onAbort, { once: true })
+    })
+    if (signal.aborted) return
+    if (onSnapshot(manager.list().find(item => item.name === name))) return
+  }
+}
+
+function observeMcpAttempt(
+  manager: Context['mcpManager'],
+  name: string,
+  signal: AbortSignal,
+  onSnapshot: (view: McpManagedServerView | undefined) => boolean,
+): void {
+  if (onSnapshot(manager.list().find(item => item.name === name))) return
+  if (typeof manager.watch === 'function') {
+    void (async () => {
+      try {
+        for await (const views of manager.watch(signal)) {
+          if (signal.aborted) return
+          if (onSnapshot(views.find(item => item.name === name))) return
+        }
+      } catch {
+        // Fall through to list() polling so a broken or early-ending watch
+        // stream never leaves the authorization prompt stuck.
+      }
+      if (!signal.aborted) {
+        if (onSnapshot(manager.list().find(item => item.name === name))) return
+        await pollMcpAttempt(manager, name, signal, onSnapshot)
+      }
+    })()
+    return
+  }
+  void pollMcpAttempt(manager, name, signal, onSnapshot)
+}
+
+async function authorizeMcpServer(
+  tui: McpPromptSurface,
+  manager: Context['mcpManager'],
+  name: string,
+  signal: AbortSignal,
+  t: TranslateFn,
+  openBrowser: boolean,
+): Promise<string> {
+  const initial = await manager.startAuthorization(name)
+  if (signal.aborted) {
+    return cancelMcpAuthorization(manager, name, initial.id, t)
+  }
+  const immediate = mcpAuthorizationOutcome(name, initial, t)
+  if (immediate !== undefined) return immediate
+
+  let attempt: McpOAuthAttemptView = initial
+  let url = attempt.authorizationUrl
+
+  if (url === undefined) {
+    const discovery = new AbortController()
+    const discoverySignal = AbortSignal.any([signal, discovery.signal])
+    let discoveryOutcome: string | undefined
+    const inspectDiscovery = (view: McpManagedServerView | undefined): boolean => {
+      const next = view?.authorization
+      if (next === undefined || next.id !== attempt.id) {
+        discoveryOutcome = view?.status.state === 'connected'
+          ? t('Authorized MCP server "{name}".', { name })
+          : t('Authorization cancelled.')
+        discovery.abort()
+        return true
+      }
+      attempt = next
+      const settled = mcpAuthorizationOutcome(name, attempt, t)
+      if (settled !== undefined) {
+        discoveryOutcome = settled
+        discovery.abort()
+        return true
+      }
+      if (attempt.authorizationUrl !== undefined) {
+        url = attempt.authorizationUrl
+        discovery.abort()
+        return true
+      }
+      return false
+    }
+
+    observeMcpAttempt(manager, name, discoverySignal, inspectDiscovery)
+    if (!discoverySignal.aborted) {
+      try {
+        await tui.prompt({
+          title: name,
+          question: t('Discovering OAuth authorization server...'),
+          detail: t('Waiting for the MCP server to return a browser authorization URL.'),
+          options: [
+            { label: t('Cancel'), value: 'cancel', description: t('Withdraw the in-progress browser authorization attempt.') },
+          ],
+          initialValue: 'cancel',
+          allowCustom: false,
+          notify: false,
+          signal: discoverySignal,
+        })
+      } finally {
+        discovery.abort()
+      }
+    }
+
+    if (discoveryOutcome !== undefined && !signal.aborted) return discoveryOutcome
+    if (url === undefined || signal.aborted) {
+      return cancelMcpAuthorization(manager, name, attempt.id, t)
+    }
+  }
+
+  if (openBrowser) openExternal(url)
+  const browser = new AbortController()
+  const browserSignal = AbortSignal.any([signal, browser.signal])
+  let settledOutcome: string | undefined
+  const inspectAttempt = (view: McpManagedServerView | undefined, controller: AbortController): boolean => {
+    const next = view?.authorization
+    if (next === undefined || next.id !== attempt.id) {
+      settledOutcome = view?.status.state === 'connected'
+        ? t('Authorized MCP server "{name}".', { name })
+        : t('Authorization cancelled.')
+      controller.abort()
+      return true
+    }
+    attempt = next
+    const outcome = mcpAuthorizationOutcome(name, next, t)
+    if (outcome !== undefined) {
+      settledOutcome = outcome
+      controller.abort()
+      return true
+    }
+    return false
+  }
+
+  observeMcpAttempt(manager, name, browserSignal, view => inspectAttempt(view, browser))
+
+  let answer: string | null = null
+  if (!browserSignal.aborted) {
+    try {
+      answer = await tui.prompt({
+        title: name,
+        question: t('Complete authorization in your browser, then return here.'),
+        detail: url,
+        options: [
+          { label: t('I completed authorization'), value: 'done' },
+          { label: t('Cancel'), value: 'cancel', description: t('Withdraw the in-progress browser authorization attempt.') },
+        ],
+        initialValue: 'done',
+        allowCustom: false,
+        notify: false,
+        signal: browserSignal,
+      })
+    } finally {
+      browser.abort()
+    }
+  }
+
+  if (settledOutcome !== undefined && !signal.aborted) return settledOutcome
+  if (answer !== 'done' || signal.aborted) {
+    return cancelMcpAuthorization(manager, name, attempt.id, t)
+  }
+
+  const settle = new AbortController()
+  const settleSignal = AbortSignal.any([signal, settle.signal])
+  observeMcpAttempt(manager, name, settleSignal, view => inspectAttempt(view, settle))
+  if (!settleSignal.aborted) {
+    try {
+      await tui.prompt({
+        title: name,
+        question: t('Waiting for OAuth completion...'),
+        detail: url,
+        options: [
+          { label: t('Cancel'), value: 'cancel', description: t('Withdraw the in-progress browser authorization attempt.') },
+        ],
+        initialValue: 'cancel',
+        allowCustom: false,
+        notify: false,
+        signal: settleSignal,
+      })
+    } finally {
+      settle.abort()
+    }
+  }
+
+  if (settledOutcome !== undefined && !signal.aborted) return settledOutcome
+  return cancelMcpAuthorization(manager, name, attempt.id, t)
+}
+
+/** Manage one runtime MCP server: inspect status, enable/disable, probe, restart, OAuth, or remove. */
 export async function manageMcpServer(
   ctx: Context,
   tui: McpPromptSurface,
   name: string,
   signal: AbortSignal,
   extraDetail?: () => string,
+  optionsConfig: { openBrowser?: boolean } = {},
 ): Promise<void> {
   const language = resolveUiLanguage(ctx.get('tui')?.prefs?.().uiLanguage)
   const t: TranslateFn = (source, values) => uiText(language, source, values)
@@ -411,15 +653,38 @@ export async function manageMcpServer(
         : t('Removed (cleanup pending)')
     const enabled = entry?.enabled ?? (view?.status.state !== 'disabled')
     const writable = ctx.get('settings')?.writable === true && section !== undefined
+    const authAttempt = view?.authorization
+    const authRunning = authAttempt !== undefined && OAUTH_ACTIVE_PHASES.has(authAttempt.phase)
+    const hasOAuth = entry?.oauth !== undefined || authAttempt !== undefined || view?.status.state === 'waiting-authorization'
+    const authLines = authAttempt === undefined ? [] : [
+      `${t('Authorization')}: ${t(authAttempt.phase)}${authAttempt.lastError ? ` · ${authAttempt.lastError}` : ''}`,
+      ...(authAttempt.authorizationUrl ? [authAttempt.authorizationUrl] : []),
+    ]
 
     const detail = [
       `${t('Status')}: ${formatMcpStatus(view?.status, t)} · ${origin}`,
+      ...authLines,
       ...summarizeEntry(entry, t),
       diagnostic,
       extraDetail?.() ?? '',
     ].filter(Boolean).join('\n\n')
 
     const options: NonNullable<TuiPrompt['options']> = [
+      ...(hasOAuth && manager !== undefined && authRunning && typeof manager.cancelAuthorization === 'function' ? [{
+        label: t('Cancel authorization'),
+        value: 'cancel-auth',
+        description: t('Withdraw the in-progress browser authorization attempt.'),
+      }] : []),
+      ...(hasOAuth && manager !== undefined && !authRunning && typeof manager.startAuthorization === 'function' ? [{
+        label: t(view?.status.state === 'waiting-authorization' ? 'Authorize in browser' : 'Re-authorize in browser'),
+        value: 'authorize',
+        description: t('Start browser OAuth authorization for this MCP server.'),
+      }] : []),
+      ...(hasOAuth && manager !== undefined && !authRunning && view?.status.state !== 'waiting-authorization' && typeof manager.signOut === 'function' ? [{
+        label: t('Sign out'),
+        value: 'sign-out',
+        description: t('Remove the stored OAuth grant for this MCP server.'),
+      }] : []),
       ...(hasConfig && writable ? [{
         label: t(enabled ? 'Disable server' : 'Enable server'),
         value: 'toggle',
@@ -451,7 +716,23 @@ export async function manageMcpServer(
     if (action === 'refresh') { diagnostic = ''; continue }
 
     try {
-      if (action === 'toggle') {
+      if (action === 'authorize' && manager !== undefined) {
+        diagnostic = await authorizeMcpServer(tui, manager, name, signal, t, optionsConfig.openBrowser !== false)
+      } else if (action === 'cancel-auth' && manager !== undefined && authAttempt !== undefined) {
+        diagnostic = await cancelMcpAuthorization(manager, name, authAttempt.id, t)
+      } else if (action === 'sign-out' && manager !== undefined) {
+        const confirmed = await confirmPrompt(tui.prompt, {
+          title: name,
+          question: `${t('Sign out')}?`,
+          detail: t('Removes the stored OAuth grant for "{name}".', { name }),
+          acceptLabel: t('Sign out'),
+          cancelLabel: t('Cancel'),
+          signal,
+        })
+        if (!confirmed || signal.aborted) continue
+        await manager.signOut(name)
+        diagnostic = t('Signed out of MCP server "{name}".', { name })
+      } else if (action === 'toggle') {
         const current = describeManager(ctx)
         if (current === undefined) throw new Error(t('MCP manager configuration is unavailable.'))
         const latestEnabled = configuredServerMap(current.value)[name]?.enabled ?? true

@@ -110,9 +110,115 @@ describe('doctor', () => {
     expect(report.checks.filter(check => check.status === 'failed')).toEqual([])
   })
 
-  it.each(['22.18.0', '23.9.0', '20.20.0'])('rejects unsupported Node %s', async nodeVersion => {
+  it.each([
+    '22.19.0',
+    '24.18.0',
+    '24.22.2',
+    '24.22.3-rc.1',
+    '24.23.0-alpha.1',
+    '25.0.0',
+    '26.13.0',
+    '26.13.1-beta.1',
+    '27.0.0-nightly.1',
+    '24.22.3.4',
+    '24.22',
+    '24.022.3',
+    '24.22.3+',
+    'not-a-version',
+  ])('rejects unsupported or invalid Node %s', async nodeVersion => {
     const { options } = fixture()
     expect((await runDoctor({ ...options, nodeVersion })).checks.find(check => check.id === 'node')?.status).toBe('failed')
+  })
+
+  it.each([
+    '24.22.3',
+    'v24.22.3',
+    '24.22.3+custom',
+    'v24.22.3+build.1',
+    '24.23.0',
+    '26.13.1',
+    'v26.13.1+pkg.1',
+    '27.0.0',
+  ])('accepts supported Node %s', async nodeVersion => {
+    const { options } = fixture()
+    expect((await runDoctor({ ...options, nodeVersion })).checks.find(check => check.id === 'node')?.status).toBe('ok')
+  })
+
+  it('diagnoses legacy imageMaxBytes, oversized imageTargetBytes, and dynamic !!js expressions without modifying files', async () => {
+    const { home, options } = fixture()
+    const dir = join(home, 'profiles', 'omdsh')
+    mkdirSync(dir, { recursive: true })
+    writeFileSync(join(dir, 'package.json'), JSON.stringify({ dsh: { profile: { bundles: [PRODUCT_BUNDLE] } } }))
+    const patchPath = join(dir, 'cordis.patch.yml')
+    writeFileSync(patchPath, [
+      '- id: llm-deepseek',
+      '  config:',
+      '    models:',
+      '      - id: deepseek-vl',
+      '        inputModalities: [text, image]',
+      '        imageMaxBytes: 40000000',
+      '',
+    ].join('\n'))
+    const before = snapshot(home)
+    const report = await runDoctor(options)
+    const check = report.checks.find(item => item.id === 'deepseek-image-limit')
+    expect(check?.status).toBe('failed')
+    expect(check?.summary).toContain('32 MiB')
+    expect(check?.summary).toContain('imageMaxBytes')
+    expect(snapshot(home)).toEqual(before)
+
+    // Oversize imageTargetBytes directly in config is also caught.
+    writeFileSync(patchPath, [
+      '- id: llm-deepseek',
+      '  config:',
+      '    models:',
+      '      - id: deepseek-vl',
+      '        inputModalities: [text, image]',
+      '        imageTargetBytes: 40000000',
+      '',
+    ].join('\n'))
+    const targetReport = await runDoctor(options)
+    const targetCheck = targetReport.checks.find(item => item.id === 'deepseek-image-limit')
+    expect(targetCheck?.status).toBe('failed')
+    expect(targetCheck?.summary).toContain('imageTargetBytes')
+    expect(targetCheck?.summary).toContain('32 MiB')
+
+    // A higher home patch overriding the bad lower layer clears the effective failure.
+    writeFileSync(join(home, 'cordis.patch.yml'), [
+      '- id: llm-deepseek',
+      '  config:',
+      '    models:',
+      '      - id: deepseek-vl',
+      '        inputModalities: [text, image]',
+      '        imageTargetBytes: 512000',
+      '',
+    ].join('\n'))
+    expect((await runDoctor(options)).checks.find(item => item.id === 'deepseek-image-limit')).toBeUndefined()
+
+    // Dynamic !!js referencing legacy imageMaxBytes surfaces a manual-migration diagnostic.
+    rmSync(join(home, 'cordis.patch.yml'))
+    writeFileSync(patchPath, [
+      '- id: llm-deepseek',
+      '  config: !!js "({ models: [{ id: \'deepseek-vl\', inputModalities: [\'text\', \'image\'], imageMaxBytes: 512000 }] })"',
+      '',
+    ].join('\n'))
+    const dynamicCheck = (await runDoctor(options)).checks.find(item => item.id === 'deepseek-image-limit')
+    expect(dynamicCheck?.status).toBe('not-checked')
+    expect(dynamicCheck?.summary).toContain('!!js')
+
+    // Field-level dynamic !!js on imageTargetBytes or imageMaxBytes also surfaces not-checked.
+    writeFileSync(patchPath, [
+      '- id: llm-deepseek',
+      '  config:',
+      '    models:',
+      '      - id: deepseek-vl',
+      '        inputModalities: [text, image]',
+      '        imageTargetBytes: !!js "40000000"',
+      '',
+    ].join('\n'))
+    const fieldTargetCheck = (await runDoctor(options)).checks.find(item => item.id === 'deepseek-image-limit')
+    expect(fieldTargetCheck?.status).toBe('not-checked')
+    expect(fieldTargetCheck?.summary).toContain('!!js')
   })
 
   it('reports unsupported terminal capabilities without emitting control sequences', async () => {
@@ -160,7 +266,7 @@ describe('doctor', () => {
 
   it('honors injected options.environment for terminal-images detection', async () => {
     const { cwd, home } = fixture()
-    const base = { version: '0.1.0', cwd, nodeVersion: 'v22.19.0', platform: process.platform, tty: true }
+    const base = { version: '0.1.0', cwd, nodeVersion: 'v24.22.3', platform: process.platform, tty: true }
     const enabled = await runDoctor({ ...base, environment: { ...process.env, OMDSH_HOME: home, OMDSH_IMAGE_PROTOCOL: 'kitty' } })
     expect(enabled.checks.find(check => check.id === 'terminal-images')).toMatchObject({ status: 'ok', summary: expect.stringContaining('kitty') })
     const disabled = await runDoctor({ ...base, environment: { PATH: process.env.PATH, OMDSH_HOME: home, OMDSH_IMAGE_PROTOCOL: 'none' } })

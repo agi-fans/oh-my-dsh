@@ -25,9 +25,10 @@ describe('shipped Worktree integration', () => {
   it('creates from committed HEAD, keeps source changes and sends the new directory context', async () => {
     const { cwd, home, git } = fixture()
     const commit = git('rev-parse', 'HEAD')
-    const turn = await bootTuiTurn({ cwd, home, preset: 'standard', toolCall: { name: 'create_worktree', arguments: JSON.stringify({ name: 'feature', from: 'HEAD' }) } })
+    const turn = await bootTuiTurn({ cwd, home, preset: 'standard', toolCall: { name: 'enter_worktree', arguments: JSON.stringify({ name: 'feature', from: 'HEAD' }) } })
     expect(turn.status, turn.output.slice(-2500)).toBe(0)
-    expect(requestToolNames(turn.bodies[0])).toContain('create_worktree')
+    expect(requestToolNames(turn.bodies[0])).toContain('enter_worktree')
+    expect(requestToolNames(turn.bodies[0])).toContain('exit_worktree')
     expect(readFileSync(join(home, 'profiles', 'omdsh', 'cordis.patch.yml'), 'utf8')).toContain('retainOnArchive: true')
     const checkout = join(cwd, '.agents', 'worktrees', 'feature')
     expect(existsSync(checkout), JSON.stringify(turn.bodies.at(-1))).toBe(true)
@@ -43,7 +44,7 @@ describe('shipped Worktree integration', () => {
   it('honors read-only Access without creating a checkout or branch', async () => {
     const { cwd, home, git } = fixture()
     const turn = await bootTuiTurn({ cwd, home, preset: 'standard', extraEnv: { OMDSH_PERMISSION_MODE: 'read-only' },
-      toolCall: { name: 'create_worktree', arguments: JSON.stringify({ name: 'refused' }) } })
+      toolCall: { name: 'enter_worktree', arguments: JSON.stringify({ name: 'refused' }) } })
     expect(turn.status, turn.output.slice(-2500)).toBe(0)
     expect(existsSync(join(cwd, '.agents', 'worktrees', 'refused'))).toBe(false)
     expect(git('branch', '--list', 'refused')).toBe('')

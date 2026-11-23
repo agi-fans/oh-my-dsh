@@ -7,7 +7,7 @@ import { createToolPresentationBridge } from './tool-presentation.ts'
 describe('ToolPresentationBridge', () => {
   it('retains the directory at call start across working-directory changes and replay', () => {
     const call = { type: 'tool/call', seq: 1, data: { callId: 'c1', name: 'owned', arguments: '{}' } } as unknown as SessionEvent
-    const change = { type: 'working-directory/change', seq: 2, data: { cwd: '/later' } } as SessionEvent
+    const change = { type: 'workspace-root/change', seq: 2, data: { cwd: '/later' } } as SessionEvent
     const result = { type: 'tool/result', seq: 3, data: { message: { source: { callId: 'c1' }, content: [] } } } as unknown as SessionEvent
     const next = { type: 'tool/ptc-dispatch-start', seq: 4, data: { subCallId: 'sub', name: 'owned', arguments: {} } } as unknown as SessionEvent
     const childResult = { type: 'tool/ptc-dispatch', seq: 6, data: { subCallId: 'sub', name: 'owned', arguments: {}, content: [] } } as unknown as SessionEvent
@@ -27,6 +27,33 @@ describe('ToolPresentationBridge', () => {
     expect(replay.get(6)?.cwd).toBe('/later')
     // Inspection can replay only the child's owned suffix, after inherited cwd changes.
     expect(bridge.session(agent, events.slice(3)).get(6)?.cwd).toBe('/later')
+  })
+
+  it('recognizes both legacy working-directory/change and workspace-root/change for historical tool-card paths', () => {
+    const legacyMove = { type: 'working-directory/change', seq: 1, data: { cwd: '/legacy-worktree' } } as unknown as SessionEvent
+    const callInLegacy = { type: 'tool/call', seq: 2, data: { callId: 'c1', name: 'owned', arguments: '{}' } } as unknown as SessionEvent
+    const resultInLegacy = { type: 'tool/result', seq: 3, data: { message: { source: { callId: 'c1' }, content: [] } } } as unknown as SessionEvent
+    const rootMove = { type: 'workspace-root/change', seq: 4, data: { cwd: '/current-worktree' } } as unknown as SessionEvent
+    const callInCurrent = { type: 'tool/call', seq: 5, data: { callId: 'c2', name: 'owned', arguments: '{}' } } as unknown as SessionEvent
+    const resultInCurrent = { type: 'tool/result', seq: 6, data: { message: { source: { callId: 'c2' }, content: [] } } } as unknown as SessionEvent
+    const events = [legacyMove, callInLegacy, resultInLegacy, rootMove, callInCurrent, resultInCurrent]
+    const agent = { session: { header: { cwd: '/origin' }, snapshotEvents: () => events } } as unknown as Agent
+    const bridge = createToolPresentationBridge({
+      tools: { get: () => ({ presentCall: () => ({ card: 'generic', title: 'Read', locations: [{ path: 'src/app.ts' }] }) }) },
+      get: () => ({ get: () => '/origin', defaultDirectory: '/origin' }),
+    } as unknown as Context)
+
+    const fullReplay = bridge.session(agent, events)
+    expect(fullReplay.get(2)?.cwd).toBe('/legacy-worktree')
+    expect(fullReplay.get(3)?.cwd).toBe('/legacy-worktree')
+    expect(fullReplay.get(5)?.cwd).toBe('/current-worktree')
+    expect(fullReplay.get(6)?.cwd).toBe('/current-worktree')
+
+    // Truncated subagent suffix replay after an inherited legacy working-directory/change
+    // still resolves relative tool paths against that inherited checkout.
+    const suffixReplay = bridge.session(agent, events.slice(1, 3))
+    expect(suffixReplay.get(2)?.cwd).toBe('/legacy-worktree')
+    expect(suffixReplay.get(3)?.cwd).toBe('/legacy-worktree')
   })
   it('gives a PTC sub-call the same cards a native call of that tool gets', () => {
     const start = {

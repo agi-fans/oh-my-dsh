@@ -16,8 +16,8 @@ const labels: Record<string, string> = { maxDepth: 'Delegation depth', maxActive
 const help: Record<string, string> = {
   maxDepth: 'Main agent: depth 0; its children: depth 1; their children: depth 2. A tool’s own depth limit takes precedence. Applies to future delegations.',
   maxActiveSubagents: 'Counts live subagents at every depth under one main agent, excluding the main agent. Lowering this limit does not stop existing children.',
-  enabled: 'Applies to new sessions only. Existing sessions keep their model policy; forked children inherit the parent route. Disabling keeps the model list.',
-  allowedModels: 'Choose exact provider and model routes for new sessions. Enabling model selection requires at least one route.',
+  enabled: 'Applies to the next delegation in every session. Forked children keep the parent route. Disabling keeps the model list.',
+  allowedModels: 'Choose exact provider and model routes for subagent delegations. Enabling model selection requires at least one route.',
 }
 const list = { allowCustom: false, notify: false, localize: ['title', 'question', 'actions'] } as const
 const object = (value: unknown): Record<string, unknown> => typeof value === 'object' && value !== null && !Array.isArray(value) ? value as Record<string, unknown> : {}

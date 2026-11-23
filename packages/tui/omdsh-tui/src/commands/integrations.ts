@@ -11,7 +11,6 @@ import {
   formatMcpStatus,
   manageMcpServer,
   promptAddMcpServer,
-  staticMcpConnectionStatus,
 } from '../runtime/mcp-settings.ts'
 import { readReference } from '../runtime/reference-reader.ts'
 import { browseTools } from '../runtime/tool-reader.ts'
@@ -125,8 +124,8 @@ async function showMcp(ctx: Context, invocation: CommandInvocation): Promise<Com
 
   const phase = (entry: PluginInfo): string => {
     if (!entry.enabled) return t('disabled')
-    const live = staticMcpConnectionStatus(ctx, String(entry.entryId))
-    return live !== undefined ? formatMcpStatus(live, t) : t(entry.fiberPhase ?? 'not mounted')
+    if (entry.fiberPhase === 'active') return t('Plugin mounted · connection status unknown')
+    return t(entry.fiberPhase ?? 'not mounted')
   }
 
   const serverSessionDetail = (server: string): string => {
@@ -151,7 +150,8 @@ async function showMcp(ctx: Context, invocation: CommandInvocation): Promise<Com
       ...(managed === undefined || managed.length === 0
         ? [t('No runtime MCP servers are configured.')]
         : managed.map(view => `- ${view.name} · ${formatMcpStatus(view.status, t)}`)),
-    ] : ['', caveat]),
+    ] : []),
+    ...(!hasManager() || (entries !== undefined && entries.length > 0) ? ['', caveat] : []),
     '',
     '### ' + t('Plugin registration'),
     ...(entries === undefined
@@ -187,7 +187,7 @@ async function showMcp(ctx: Context, invocation: CommandInvocation): Promise<Com
       detail: [
         error,
         diagnostic,
-        ...(!hasManager() ? [caveat] : []),
+        ...(!hasManager() || (entries !== undefined && entries.length > 0) ? [caveat] : []),
         setup(),
         emptyState,
       ].filter(Boolean).join('\n'),

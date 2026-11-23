@@ -44,7 +44,7 @@ describe('model catalog drafts', () => {
   })
 
   it('removes DeepSeek image constraints when selecting or restoring text-only input', async () => {
-    const models = [{ id: 'one', inputModalities: ['text', 'image'], imagePixelBudget: 10000, imageMaxBytes: 20000, unknown: 42 }]
+    const models = [{ id: 'one', inputModalities: ['text', 'image'], imagePixelBudget: 10000, imageTargetBytes: 20000, imageMaxBytes: 20000, unknown: 42 }]
     const h = await edit(['model:0', 'input', 'choose', '', 'input', 'choose', 'text', 'keep', '@keep'], models, { inputField: 'inputModalities' })
     expect(h.notice).toHaveBeenCalledWith('Select at least one input type', { level: 'error' })
     expect(h.result).toEqual([{ id: 'one', inputModalities: ['text'], unknown: 42 }])

@@ -115,7 +115,7 @@ try {
   const selection = ctx.settings.describe().find(row => row.ns === 'subagent-model-selection-settings')
   assert.ok(selection, 'published model-selection settings mounted')
   await ctx.settings.update(selection.ns, { allowedModels: [{ provider: 'deepseek-official', model: 'deepseek-flash' }], enabled: true }, selection.revision)
-  assert.deepEqual(ctx.subagentModelSelection.current(), { enabled: true, allowedModels: [{ provider: 'deepseek-official', model: 'deepseek-flash' }] })
+  assert.deepEqual(ctx.subagentModelSelection.allowedRoutes(), [{ provider: 'deepseek-official', model: 'deepseek-flash' }])
   assert.equal((await manager.removeBundle('omdsh-runtime-probe')).application, 'applied')
   assert.equal(ctx.get('omdshRuntimeProbe'), undefined)
   assert.ok(!(await manager.listBundles()).some(row => row.name === 'omdsh-runtime-probe'))

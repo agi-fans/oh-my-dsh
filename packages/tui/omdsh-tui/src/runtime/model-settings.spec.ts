@@ -77,14 +77,156 @@ describe('Models provider management', () => {
     finally { await h.ctx.fiber.dispose() }
   })
 
-  it('materializes inherited catalog overrides only on an accepted edit and retains unknown fields', async () => {
+  it('writes single-model edits on an inherited catalog to modelOverrides without pinning the whole catalog', async () => {
     const h = harness(['relay', 'models', 'model:0', 'name', 'Edited', 'keep', '@keep', 'apply', null], { entries: [{ ...route, declared: false }] })
     h.replace({ value: { providers: { relay: { modelOverrides: { one: { maxTokens: 2048, compat: { future: true } } } } } } })
     try {
       await openModelSettings(h.ctx, h.signal)
       expect(h.mutate.mock.calls[0]?.[1]).toEqual([
-        { op: 'set', path: ['providers', 'relay', 'models'], value: [{ id: 'one', name: 'Edited', maxTokens: 2048, compat: { future: true } }, { id: 'two' }] },
+        { op: 'set', path: ['providers', 'relay', 'modelOverrides'], value: { one: { name: 'Edited', maxTokens: 2048, compat: { future: true } } } },
+      ])
+    } finally { await h.ctx.fiber.dispose() }
+  })
+
+  it('materializes models and clears modelOverrides when catalog membership or order changes', async () => {
+    const h = harness(['relay', 'models', 'up:model:1', '@keep', 'apply', null], { entries: [{ ...route, declared: false }] })
+    h.replace({ value: { providers: { relay: { modelOverrides: { one: { maxTokens: 2048, compat: { future: true } } } } } } })
+    try {
+      await openModelSettings(h.ctx, h.signal)
+      expect(h.mutate.mock.calls[0]?.[1]).toEqual([
+        { op: 'set', path: ['providers', 'relay', 'models'], value: [{ id: 'two' }, { id: 'one', maxTokens: 2048, compat: { future: true } }] },
         { op: 'unset', path: ['providers', 'relay', 'modelOverrides'] },
+      ])
+    } finally { await h.ctx.fiber.dispose() }
+  })
+
+  it('writes an explicit empty modelOverrides dict when reordering models over deployment base modelOverrides', async () => {
+    const baseOverrides = { one: { maxTokens: 2048 } }
+    const h = harness([
+      'relay', 'models', 'up:model:1', '@keep', 'apply',
+      null,
+    ], {
+      entries: [{ ...route, declared: false }],
+      base: { providers: { relay: { modelOverrides: baseOverrides } } },
+    })
+    h.replace({
+      base: { providers: { relay: { modelOverrides: baseOverrides } } },
+      value: { providers: { relay: { baseURL: initialProfile.baseURL, models: [], modelOverrides: structuredClone(baseOverrides) } } },
+    })
+    h.mutate.mockImplementationOnce(async (_ns, ops) => {
+      for (const op of ops) {
+        if (op.op === 'unset' && op.path.at(-1) === 'modelOverrides') {
+          throw new Error('unset would restore base.modelOverrides beside explicit models')
+        }
+      }
+    })
+    try {
+      await openModelSettings(h.ctx, h.signal)
+      expect(h.mutate.mock.calls[0]?.[1]).toEqual([
+        {
+          op: 'set',
+          path: ['providers', 'relay', 'models'],
+          value: [{ id: 'two' }, { id: 'one', maxTokens: 2048 }],
+        },
+        { op: 'set', path: ['providers', 'relay', 'modelOverrides'], value: {} },
+      ])
+    } finally { await h.ctx.fiber.dispose() }
+  })
+
+  it('saves catalog pi-ai reasoningEfforts edits to modelOverrides without replacing the catalog', async () => {
+    const reasoningEffortSchema = z.union([
+      z.const(false),
+      z.dict(z.union([z.string(), z.const(null)]), z.union(['off', 'minimal', 'low', 'medium', 'high', 'xhigh', 'max'] as const)),
+    ])
+    const piAiSchema = z.object({
+      providers: z.dict(z.object({
+        api: z.union(['openai-completions', 'anthropic-messages']),
+        baseURL: z.string(),
+        models: z.array(z.object({ id: z.string(), reasoningEfforts: reasoningEffortSchema })),
+        modelOverrides: z.dict(z.object({ reasoningEfforts: reasoningEffortSchema })),
+      })),
+    }).toJSON()
+    const h = harness([
+      'relay', 'models', 'model:0', 'reasoning', '@levels', 'off,low,high', '@done', 'keep', '@keep', 'apply', null,
+    ], { entries: [{ ...route, declared: false }] })
+    // Real Schemastery pi-ai profiles project unset `models` as `[]` and `modelOverrides` as `{}`.
+    h.replace({ schema: piAiSchema, value: { providers: { relay: { baseURL: initialProfile.baseURL, models: [], modelOverrides: {} } } } })
+    try {
+      await openModelSettings(h.ctx, h.signal)
+      expect(h.mutate.mock.calls[0]?.[1]).toEqual([
+        { op: 'set', path: ['providers', 'relay', 'modelOverrides'], value: { one: { reasoningEfforts: { off: null, low: 'low', high: 'high' } } } },
+      ])
+    } finally { await h.ctx.fiber.dispose() }
+  })
+
+  it('clears modelOverrides and preserves per-model overrides when fetching available models on an inherited pi-ai catalog', async () => {
+    const h = harness([
+      'relay',
+      'fetch',
+      request => { expect(request.initialValues).toEqual(['one', 'three']); return 'one,three' },
+      'apply',
+      null,
+    ], { entries: [{ ...route, declared: false }] })
+    h.replace({
+      value: {
+        providers: {
+          relay: {
+            baseURL: initialProfile.baseURL,
+            models: [],
+            modelOverrides: { one: { reasoningEfforts: { high: 'high' } } },
+          },
+        },
+      },
+    })
+    try {
+      await openModelSettings(h.ctx, h.signal)
+      expect(h.mutate.mock.calls[0]?.[1]).toEqual([
+        {
+          op: 'set',
+          path: ['providers', 'relay', 'models'],
+          value: [
+            { id: 'one', name: 'Remote name', reasoningEfforts: { high: 'high' } },
+            { id: 'three', name: 'New', contextWindow: 60000, input: ['text', 'image'] },
+          ],
+        },
+        { op: 'unset', path: ['providers', 'relay', 'modelOverrides'] },
+      ])
+    } finally { await h.ctx.fiber.dispose() }
+  })
+
+  it('writes an explicit empty modelOverrides dict when fetching models over deployment base modelOverrides', async () => {
+    const baseOverrides = { one: { maxTokens: 2048 } }
+    const h = harness([
+      'relay', 'fetch', 'one,three', 'apply',
+      null,
+    ], {
+      entries: [{ ...route, declared: false }],
+      base: { providers: { relay: { modelOverrides: baseOverrides } } },
+    })
+    h.replace({
+      base: { providers: { relay: { modelOverrides: baseOverrides } } },
+      value: { providers: { relay: { baseURL: initialProfile.baseURL, models: [], modelOverrides: structuredClone(baseOverrides) } } },
+    })
+    // Simulate SettingsForms.mutate() restoring base on `unset`.
+    h.mutate.mockImplementationOnce(async (_ns, ops) => {
+      for (const op of ops) {
+        if (op.op === 'unset' && op.path.at(-1) === 'modelOverrides') {
+          throw new Error('unset would restore base.modelOverrides beside explicit models')
+        }
+      }
+    })
+    try {
+      await openModelSettings(h.ctx, h.signal)
+      expect(h.mutate.mock.calls[0]?.[1]).toEqual([
+        {
+          op: 'set',
+          path: ['providers', 'relay', 'models'],
+          value: [
+            { id: 'one', name: 'Remote name', maxTokens: 2048 },
+            { id: 'three', name: 'New', contextWindow: 60000, input: ['text', 'image'] },
+          ],
+        },
+        { op: 'set', path: ['providers', 'relay', 'modelOverrides'], value: {} },
       ])
     } finally { await h.ctx.fiber.dispose() }
   })

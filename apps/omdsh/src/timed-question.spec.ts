@@ -15,7 +15,7 @@ describe('timed questions through the shipped CLI', () => {
           ? { name: 'ask_user_question', arguments: JSON.stringify(question) }
           : { name: 'run_code', arguments: JSON.stringify({
               description: 'Ask which scope to use',
-              code: `return await tools.ask_user_question(${JSON.stringify(question)})`,
+              code: `await tools.ask_user_question(${JSON.stringify(question)})`,
             }) },
       })
       expect(turn.status, turn.output.slice(-2_000)).toBe(0)

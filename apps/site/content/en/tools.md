@@ -13,9 +13,9 @@ Switch presets on a blank session with `/agent`, or set the default for new sess
 | Preset | Focus | Tools included | Best for |
 |---|---|---|---|
 | **`Standard`** (default) | Full everyday coding agent | File read/write/search, sandboxed shell, persistent terminal, web search/fetch, Todo, goal/jobs/schedule, Plan mode, subagents, session history, Agent Teams (when `/team on` is active) | **95% of everyday coding, debugging, and refactors** |
-| **`PTC`** (`code`) | Programmatic tool orchestration | Exposes the tool registry as a generated SDK inside **`run_code`** (hides `workflow_run`) | Batching dozens of reads, filters, or checks in one script with fewer model round-trips |
+| **`PTC`** (`code`) | Programmatic tool orchestration | Exposes the tool registry as a generated SDK inside **`run_code`** (hides `workflow_run`); runs in a session-scoped persistent in-memory REPL that keeps variables across calls and does not accept top-level `return` | Batching dozens of reads, filters, or checks in one script with fewer model round-trips |
 | **`Minimal`** | Lean two-tool setup | Minimal file and shell pair only | Tight context budgets or minimal baseline comparisons |
-| **`Creator`** (`cordis`) | Plugin authoring | Standard catalog plus the bundled `dsh-doc` authoring skill and read-only runtime inspection (`cordis_inspect_list`, `cordis_inspect_query`) | Building or debugging omdsh plugins via `/agent creator` (without changing your default preset) |
+| **`Creator`** (`cordis`) | Plugin authoring | Standard catalog plus the bundled `dsh-doc` authoring skill and read-only runtime inspection (`cordis_inspect`) | Building or debugging omdsh plugins via `/agent creator` (without changing your default preset) |
 
 > Once the first message is sent, a session’s preset is locked to keep tool history consistent. Run `/agent inspect` anytime to inspect what is mounted.
 

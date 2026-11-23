@@ -14,7 +14,7 @@
   },
   "type": "module",
   "engines": {
-    "node": "^22.19 || >=24"
+    "node": "^24.22.3 || >=26.13.1"
   },
   "packageManager": "pnpm@11.20.0",
   "scripts": {
@@ -36,7 +36,7 @@
   "devDependencies": {
     "@commitlint/cli": "^19.8.1",
     "@commitlint/config-conventional": "^19.8.1",
-    "@deepseek-ai/dsh-llm-mock-server": "0.2.2-rc.5",
+    "@deepseek-ai/dsh-llm-mock-server": "0.2.3-alpha.2",
     "@types/node": "^22.10.0",
     "lefthook": "2.1.10",
     "node-pty": "^1.1.0",

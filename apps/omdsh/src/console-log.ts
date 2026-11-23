@@ -5,7 +5,7 @@
  * @module @agi-fans/oh-my-dsh/console-log
  */
 
-import { createWriteStream, mkdirSync } from 'node:fs'
+import { appendFileSync, createWriteStream, mkdirSync } from 'node:fs'
 import { join } from 'node:path'
 import { format } from 'node:util'
 
@@ -44,4 +44,20 @@ export function installConsoleLogSink(home: string): string | undefined {
     ;(console as unknown as Record<string, unknown>)[level] = method
   }
   return path
+}
+
+/**
+ * Synchronously append one formatted diagnostic line to `$OMDSH_HOME/omdsh/logs/omdsh.log`
+ * so shutdown/signal-exit warnings survive an immediate `process.exit()`.
+ */
+export function appendConsoleLogSync(home: string, level: 'warn' | 'error' | 'info', message: string): string | undefined {
+  try {
+    const dir = join(home, 'omdsh', 'logs')
+    mkdirSync(dir, { recursive: true, mode: 0o700 })
+    const path = join(dir, 'omdsh.log')
+    appendFileSync(path, `${new Date().toISOString()} ${level.toUpperCase()} ${message}\n`, { mode: 0o600 })
+    return path
+  } catch {
+    return undefined
+  }
 }

@@ -28,7 +28,7 @@ jobs:
 
       - uses: actions/setup-node@v5
         with:
-          node-version: '22'
+          node-version: '^24.22.3'
           cache: pnpm
 
       # Proves the product installs, compiles, passes its suite, builds, and
@@ -54,7 +54,7 @@ jobs:
 
       - uses: actions/setup-node@v5
         with:
-          node-version: '22'
+          node-version: '^24.22.3'
           cache: pnpm
 
       - run: pnpm install --frozen-lockfile

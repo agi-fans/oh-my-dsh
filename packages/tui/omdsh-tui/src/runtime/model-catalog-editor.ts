@@ -106,7 +106,7 @@ async function editModel(ctx: Context, original: Model, others: readonly Model[]
       if (mode === 'inherit') {
         delete draft[options.inputField]
         // DeepSeek defaults an omitted input declaration to text only.
-        if (options.inputField === 'inputModalities') { delete draft.imagePixelBudget; delete draft.imageMaxBytes }
+        if (options.inputField === 'inputModalities') { delete draft.imagePixelBudget; delete draft.imageTargetBytes; delete draft.imageMaxBytes }
         continue
       }
       if (mode !== 'choose') continue
@@ -117,7 +117,7 @@ async function editModel(ctx: Context, original: Model, others: readonly Model[]
       const values = picked.split(',').map(value => value.trim()).filter(value => value === 'text' || value === 'image')
       if (!values.length) { ctx.tui.notice('Select at least one input type', { level: 'error' }); continue }
       draft[options.inputField] = values
-      if (options.inputField === 'inputModalities' && !values.includes('image')) { delete draft.imagePixelBudget; delete draft.imageMaxBytes }
+      if (options.inputField === 'inputModalities' && !values.includes('image')) { delete draft.imagePixelBudget; delete draft.imageTargetBytes; delete draft.imageMaxBytes }
       continue
     }
     if (choice === 'reasoning' && options.reasoningLevels.length) {

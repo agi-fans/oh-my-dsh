@@ -216,6 +216,11 @@
   - id: deepseek-account
     name: '@deepseek-ai/dsh-deepseek-account'
 
+  # Shared DeepSeek request authentication: chooses between API key and account
+  # sign-in for DeepSeek model routes and web providers.
+  - id: deepseek-auth
+    name: '@deepseek-ai/dsh-deepseek-auth'
+
   # Dormant multi-provider twin: zero extra picker routes until a `llm-pi-ai:`
   # settings section supplies profiles. /login writes those profiles; /model
   # lists whatever routes become live. Keep llm-deepseek as the official
@@ -398,9 +403,6 @@
   - id: working-directory
     name: '@deepseek-ai/dsh-working-directory'
 
-  - id: tool-working-directory
-    name: '@deepseek-ai/dsh-tool-working-directory'
-
   - id: tool-skill
     name: '@deepseek-ai/dsh-tool-skill'
 
@@ -439,6 +441,11 @@
 
   - id: cordis-host-runner
     name: '@deepseek-ai/dsh-cordis-host-runner'
+
+  # First-party Host inspect providers registered once per process so Creator's
+  # `cordis_inspect` tool exposes Service, Event, Config, Runtime, and Tool APIs.
+  - id: cordis-inspect-providers
+    name: '@deepseek-ai/dsh-tool-cordis/host'
 
   # Human and model workflow contributions. The TUI discovers human commands
   # from dsh-commands and renders unknown tools through its safe fallback.

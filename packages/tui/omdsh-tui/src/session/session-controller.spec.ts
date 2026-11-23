@@ -676,9 +676,9 @@ describe('SessionRuntime inspected-subagent delivery', () => {
         expect(setInspectedSubagent.mock.lastCall?.[0].stats).toMatchObject(expected)
       }
       if (mode === 'queue') {
-        rootSession.append('working-directory/change', { cwd: process.cwd() })
+        rootSession.append('workspace-root/change', { cwd: process.cwd() })
         expect(setWorkingDirectory).toHaveBeenLastCalledWith(expect.any(String), { root: true })
-        childSession.append('working-directory/change', { cwd: process.cwd() })
+        childSession.append('workspace-root/change', { cwd: process.cwd() })
         expect(setWorkingDirectory).toHaveBeenLastCalledWith(expect.any(String), { root: false })
         const other = ctx.sessions.create(SessionId('session-other-child'), { meta: { parentSession: rootId, origin: 'subagent', delegationDepth: 1 } })
         otherAgent = { id: other.id, session: other, status: 'running', model: stubModel({ provider: 'other', model: 'other-model' }) } as unknown as Agent

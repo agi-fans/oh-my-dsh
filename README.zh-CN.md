@@ -6,7 +6,7 @@
 
 oh-my-dsh 是基于 [DeepSeek Harness](https://github.com/deepseek-ai/deepseek-harness) 构建的终端编程助手，以 `omdsh` 命令启动，专注清晰的终端阅读层次、顺手的键鼠交互与可控的长会话编程工作流。
 
-[![CI](https://github.com/agi-fans/oh-my-dsh/actions/workflows/ci.yml/badge.svg)](https://github.com/agi-fans/oh-my-dsh/actions/workflows/ci.yml) [![npm version](https://img.shields.io/npm/v/%40agi-fans%2Foh-my-dsh?style=flat-square&logo=npm)](https://www.npmjs.com/package/@agi-fans/oh-my-dsh) [![npm downloads](https://img.shields.io/npm/dm/%40agi-fans%2Foh-my-dsh?style=flat-square&logo=npm)](https://www.npmjs.com/package/@agi-fans/oh-my-dsh) [![Node.js ^22.19 or >=24](https://img.shields.io/badge/node-%5E22.19%20%7C%7C%20%3E%3D24-339933?style=flat-square&logo=node.js)](https://nodejs.org/) [![MIT License](https://img.shields.io/npm/l/%40agi-fans%2Foh-my-dsh?style=flat-square)](LICENSE)
+[![CI](https://github.com/agi-fans/oh-my-dsh/actions/workflows/ci.yml/badge.svg)](https://github.com/agi-fans/oh-my-dsh/actions/workflows/ci.yml) [![npm version](https://img.shields.io/npm/v/%40agi-fans%2Foh-my-dsh?style=flat-square&logo=npm)](https://www.npmjs.com/package/@agi-fans/oh-my-dsh) [![npm downloads](https://img.shields.io/npm/dm/%40agi-fans%2Foh-my-dsh?style=flat-square&logo=npm)](https://www.npmjs.com/package/@agi-fans/oh-my-dsh) [![Node.js ^24.22.3 or >=26.13.1](https://img.shields.io/badge/node-%5E24.22.3%20%7C%7C%20%3E%3D26.13.1-339933?style=flat-square&logo=node.js)](https://nodejs.org/) [![MIT License](https://img.shields.io/npm/l/%40agi-fans%2Foh-my-dsh?style=flat-square)](LICENSE)
 
 [官方文档](https://omdsh.agi.fans/zh/) · [English](README.md) · 简体中文
 
@@ -18,7 +18,7 @@ https://github.com/user-attachments/assets/bedf83db-df50-43e4-a786-61ad42cf5a7d
 
 ## 快速开始
 
-需要 Node.js 22.19+（22.x）或 Node.js 24+，以及 DeepSeek 账户或 API Key。
+需要 Node.js 24.22.3+（24.x）或 Node.js 26.13.1+，以及 DeepSeek 账户或 API Key。
 
 ```sh
 npm install --global @agi-fans/oh-my-dsh

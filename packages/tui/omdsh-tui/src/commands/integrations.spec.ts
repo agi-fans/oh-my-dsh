@@ -165,3 +165,39 @@ it('renders live mcpManager servers in line mode and routes managed server selec
     expect(interactiveRestart).toHaveBeenCalledWith('docs')
   } finally { await interactive.ctx.fiber.dispose() }
 })
+
+it('labels active static MCP entries as unknown connection health and keeps the caveat even when mcpManager is mounted', async () => {
+  const h = await fixture(false)
+  h.listPlugins.mockResolvedValue([
+    { entryId: 'mcp-static', moduleName: '@deepseek-ai/dsh-mcp-client', enabled: true, fiberPhase: 'active' },
+  ])
+  h.ctx.provide('mcpManager', {
+    list: () => [{ name: 'live', configured: true, status: { state: 'connected', toolCount: 1, connectedAt: 500 } }],
+    restart: vi.fn(),
+    probe: vi.fn(),
+  } as never)
+  try {
+    const lineResult = (await h.execute())?.result
+    expect(lineResult?.kind).toBe('success')
+    expect(lineResult?.text).toContain('mcp-static · Plugin mounted · connection status unknown')
+    expect(lineResult?.text).toContain('do not verify transport health or authentication')
+  } finally { await h.ctx.fiber.dispose() }
+
+  const zh = await fixture(true, 'zh-CN')
+  zh.listPlugins.mockResolvedValue([
+    { entryId: 'mcp-static', moduleName: '@deepseek-ai/dsh-mcp-client', enabled: true, fiberPhase: 'active' },
+  ])
+  zh.ctx.provide('mcpManager', {
+    list: () => [],
+    restart: vi.fn(),
+    probe: vi.fn(),
+  } as never)
+  zh.prompt.mockResolvedValueOnce(null)
+  try {
+    await zh.execute()
+    expect(zh.prompt.mock.calls[0]![0].options).toContainEqual(
+      expect.objectContaining({ label: 'mcp-static', description: '插件已挂载 · 连接状态未知' }),
+    )
+    expect(zh.prompt.mock.calls[0]![0].detail).toContain('插件注册和工具可用性不代表连接正常或认证已通过')
+  } finally { await zh.ctx.fiber.dispose() }
+})

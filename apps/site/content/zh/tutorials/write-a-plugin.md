@@ -55,7 +55,7 @@ cd greet-plugin
     }
   },
   "peerDependencies": {
-    "@deepseek-ai/cordis": "~4.1.0",
+    "@deepseek-ai/cordis": "~4.2.0-alpha.1",
     "@deepseek-ai/dsh-commands": "<与当前 omdsh 一致的 DSH 版本>"
   }
 }

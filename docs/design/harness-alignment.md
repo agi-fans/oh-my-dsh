@@ -1,6 +1,6 @@
 # Harness 交互对齐契约
 
-omdsh 以已发布 Harness 的产品语义为基线，以终端的输入、布局和原生历史契约决定呈现方式。当前依赖基线为 npm `0.2.2-rc.5`，参考子模块对齐到标签 `dsh-v0.2.2-rc.5` 的 `9c2670d3bc`，供源码比对。
+omdsh 以已发布 Harness 的产品语义为基线，以终端的输入、布局和原生历史契约决定呈现方式。当前依赖基线为 npm `0.2.3-alpha.2`，参考子模块对齐到标签 `dsh-v0.2.3-alpha.2` 的 `4b399c39a6`，供源码比对。
 
 ## 已落实的对应关系
 
@@ -63,7 +63,7 @@ Settings → Models 的模型服务商入口由现有 settings consumer 提供�
 
 字段修改先进入草稿，Apply 只提交变化的路径，沿用显示时的 revision。已有模型参数和未编辑字段保留，恢复默认模型使用 unset。设置写入成功后更新基线再保存密钥；密钥失败保留输入，重试不会重复提交配置。Cancel 只放弃尚未保存的修改。服务商变更不修改模型选择，凭据只写入 credentials 服务。删除仅开放给 user 层独有的路由，只清理精确匹配 omdsh 派生引用的可写本地密钥。
 
-添加支持目录服务商和自定义 API，协议选项读取已挂载 schema。自定义路由 ID 固定；目录发现采用已发布 `discoverModels`，返回值先进入可搜索选择列表，既有参数和未返回的已配置模型不丢失。模型列表支持新增、确认删除、Alt+Up/Down 排序及逐项编辑 ID、名称、容量和输入类型。模型与列表各自的取消只丢弃本层编辑，保留后进入服务商草稿，Apply 才写入。只查看继承目录不产生覆盖；首次编辑将已有 modelOverrides 合入替换数组，并移除互斥的 modelOverrides 路径。DeepSeek 使用 inputModalities，移除图片输入时清理 imagePixelBudget 和 imageMaxBytes；pi-ai 使用 input。自定义 API 的 reasoningEfforts 等级从已挂载 schema 读取，保留未知键和 off 值，开启时必须包含思考等级；目录模型不开放此编辑。
+添加支持目录服务商和自定义 API，协议选项读取已挂载 schema。自定义路由 ID 固定；目录发现采用已发布 `discoverModels`，返回值先进入可搜索选择列表，既有参数和未返回的已配置模型不丢失。模型列表支持新增、确认删除、Alt+Up/Down 排序及逐项编辑 ID、名称、容量和输入类型。模型与列表各自的取消只丢弃本层编辑，保留后进入服务商草稿，Apply 才写入。只查看继承目录不产生覆盖；在继承的 `llm-pi-ai` 目录服务商上只修改单模型属性（含 `reasoningEfforts`）且未增删或重排模型时，变更写入 `modelOverrides` 而不固化整个 `models` 列表；一旦增删或重排模型，再将已有 `modelOverrides` 合入替换数组并移除互斥的 `modelOverrides` 路径。DeepSeek 使用 inputModalities，移除图片输入时清理 imagePixelBudget、imageTargetBytes 与旧键 imageMaxBytes；pi-ai 使用 input。目录服务商与自定义 API 的 `llm-pi-ai` 模型均从已挂载 schema 读取 reasoningEfforts 等级，保留未知键和 off 值，开启时必须包含思考等级。
 
 ## Web 搜索与抓取契约
 
@@ -77,7 +77,7 @@ Plugins → Web search and fetch 合并 `web` 的服务商选择、`web-deepseek
 
 Plugins → Subagents 合并 `subagent` 的深度／容量和 `subagent-model-selection-settings` 的开关／允许路由，任一 namespace 可独立存在；额外字段留在 Advanced。字段修改与恢复继承均先暂存，Apply 才写入。开关与名单通过同一次 revision 校验写入；开启必须有模型，关闭保留名单。两个 namespace 独立保存，失败保留原草稿与版本，成功后清理对应草稿；取消只放弃未保存内容，不回滚已经成功的部分。
 
-模型目录消费已发布 `llm.listProviders/listModels`，分别处理各服务商结果，刷新响应带代次且关闭后失效。适配器／设置事件刷新目录，手动 Refresh models 可重试；已保存的缺失路由保持可选和可删除，同一次选择过程中已经显示的路由也不移除，避免刷新丢失勾选。界面明确深度从主代理 0 开始且工具自身的限制优先，并发数跨所有层级且排除主代理；降低限制不停止已有子代理。模型策略由 Harness 在新会话建立时冻结，已有会话与 fork 继承不被 TUI 改写。
+模型目录消费已发布 `llm.listProviders/listModels`，分别处理各服务商结果，刷新响应带代次且关闭后失效。适配器／设置事件刷新目录，手动 Refresh models 可重试；已保存的缺失路由保持可选和可删除，同一次选择过程中已经显示的路由也不移除，避免刷新丢失勾选。界面明确深度从主代理 0 开始且工具自身的限制优先，并发数跨所有层级且排除主代理；降低限制不停止已有子代理。模型策略由 Harness 实时持有并作用于所有会话的下一次委派，fork 子代理继续继承父路由且不被 TUI 改写。
 
 ## Shell 与工具并行度设置契约
 

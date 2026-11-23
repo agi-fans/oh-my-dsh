@@ -20,6 +20,22 @@ const list = { localize: true, allowCustom: false, notify: false } as const
 const object = (value: unknown): Record<string, unknown> => typeof value === 'object' && value !== null && !Array.isArray(value) ? value as Record<string, unknown> : {}
 const string = (value: unknown): string => typeof value === 'string' ? value : ''
 const models = (value: unknown): Record<string, unknown>[] => Array.isArray(value) ? value.map(object) : []
+function isEmptyCompat(value: unknown): boolean {
+  if (typeof value !== 'object' || value === null || Array.isArray(value)) return false
+  return Object.values(value as Record<string, unknown>).every(entry =>
+    typeof entry === 'object' && entry !== null && !Array.isArray(entry) && Object.keys(entry).length === 0)
+}
+/** Strip schema-synthesized empty defaults (`input: []`, empty `compat` dicts) from projected modelOverrides. */
+function cleanModelOverride(raw: unknown): Record<string, unknown> {
+  const cleaned: Record<string, unknown> = {}
+  for (const [key, fieldValue] of Object.entries(object(raw))) {
+    if (fieldValue === undefined) continue
+    if (key === 'input' && Array.isArray(fieldValue) && fieldValue.length === 0) continue
+    if (key === 'compat' && isEmptyCompat(fieldValue)) continue
+    cleaned[key] = fieldValue
+  }
+  return cleaned
+}
 const describe = (ctx: Context, ns: string): SettingsDescriptor | undefined => ctx.settings.describe({ redactSecrets: true }).find(section => section.ns === ns)
 const profile = (section: SettingsDescriptor, entry: LlmConfigurableProvider): Record<string, unknown> => object(walkPath(section.value, entry.settingsPath))
 const custom = (entry: LlmConfigurableProvider): boolean => entry.settingsNs === 'llm-pi-ai' && entry.declared === true
@@ -174,6 +190,21 @@ async function editProvider(ctx: Context, entry: LlmConfigurableProvider, signal
   const changes = new Map<string, unknown>()
   let key = '', diagnostic = entry.error ?? ''
   const value = (field: string): unknown => changes.has(field) ? changes.get(field) : saved[field]
+  const baseHasModelOverrides = (): boolean =>
+    Object.keys(object(walkPath(section.base, [...entry.settingsPath, 'modelOverrides']))).length > 0
+  const stageExplicitModels = (nextModels: Record<string, unknown>[]): void => {
+    changes.set('models', nextModels)
+    const hasBaseOverrides = baseHasModelOverrides()
+    const hasOverrides = hasBaseOverrides
+      || Object.keys(object(value('modelOverrides'))).length > 0
+      || Object.keys(object(saved.modelOverrides)).length > 0
+    if (nextModels.length > 0 && hasOverrides) {
+      assertCatalogWritable(section, [...entry.settingsPath, 'modelOverrides'])
+      // When the deployment base defines `modelOverrides`, `unset` would restore
+      // it beside the explicit `models` list; write `{}` to clear it instead.
+      changes.set('modelOverrides', hasBaseOverrides ? {} : undefined)
+    }
+  }
   while (!signal.aborted) {
     const canWrite = ctx.settings.writable
     const auth = text(ctx, await authentication(ctx, entry, saved).catch(errorText))
@@ -199,7 +230,7 @@ async function editProvider(ctx: Context, entry: LlmConfigurableProvider, signal
         const latest = describe(ctx, section.ns)
         if (latest === undefined) throw new Error('Provider configuration is no longer available.')
         const result = await rebaseSettingsDraft(ctx, section, latest, changes, [...changes.keys()].map(field => ({
-          key: field, label: ({ baseURL: 'Base URL', api: 'API protocol', displayName: 'Display name', models: 'Model list' } as Record<string, string>)[field] ?? field,
+          key: field, label: ({ baseURL: 'Base URL', api: 'API protocol', displayName: 'Display name', models: 'Model list', modelOverrides: 'Model overrides' } as Record<string, string>)[field] ?? field,
           defaultValue: undefined, format: (value: unknown) => typeof value === 'string' ? value : JSON.stringify(value) ?? text(ctx, 'Inherited'),
         })), signal, entry.settingsPath)
         if (result === undefined) continue
@@ -260,7 +291,12 @@ async function editProvider(ctx: Context, entry: LlmConfigurableProvider, signal
         ctx.tui.notice('Provider removed. The selected model is unchanged.')
         return
       }
-      if (choice === 'reset') { changes.set('models', undefined); diagnostic = ''; continue }
+      if (choice === 'reset') {
+        changes.set('models', undefined)
+        if (Object.keys(object(value('modelOverrides'))).length > 0) changes.set('modelOverrides', undefined)
+        diagnostic = ''
+        continue
+      }
       if (choice === 'fetch') {
         const found = await llm(ctx).discoverModels(entry.settingsNs, { ...(creating && custom(entry) ? {} : { provider: entry.provider }),
           ...(string(value('baseURL')) ? { baseURL: parseBaseURL(string(value('baseURL'))) } : {}), ...(string(value('api')) ? { api: string(value('api')) } : {}), ...(key === '' ? {} : { apiKey: key }) }, signal)
@@ -268,6 +304,7 @@ async function editProvider(ctx: Context, entry: LlmConfigurableProvider, signal
         const candidates = [...new Map(found.filter(row => row.id).map(row => [row.id, row])).values()]
         if (candidates.length === 0) throw new Error('No models were returned. Enter model ids manually.')
         const current = models(value('models'))
+        const overrides = object(value('modelOverrides'))
         const picked = await ctx.tui.prompt({ ...list, localize: ['title', 'question', 'actions'], title: 'Model list', question: 'Choose models to enable', multiSelect: true, filterable: true,
           initialValues: current.length === 0 ? candidates.map(row => row.id) : current.map(row => string(row.id)),
           options: candidates.map(row => ({ label: row.id, value: row.id, description: row.name ?? row.id })), signal })
@@ -275,23 +312,48 @@ async function editProvider(ctx: Context, entry: LlmConfigurableProvider, signal
         const selected = new Set(parseModelIds(picked))
         assertCatalogWritable(section, [...entry.settingsPath, 'models'])
         const keep = current.filter(row => !candidates.some(candidate => candidate.id === row.id) || selected.has(string(row.id)))
-        changes.set('models', [...keep, ...candidates.filter(row => selected.has(row.id) && !keep.some(existing => existing.id === row.id)).map(row => discoveredModel(entry, row))])
+        const added = candidates
+          .filter(row => selected.has(row.id) && !keep.some(existing => existing.id === row.id))
+          .map(row => ({ ...discoveredModel(entry, row), ...(current.length === 0 ? cleanModelOverride(overrides[row.id]) : {}) }))
+        stageExplicitModels([...keep, ...added])
         diagnostic = ''; continue
       }
       if (choice === 'models') {
         assertCatalogWritable(section, [...entry.settingsPath, 'models'])
         if (changes.has('models') && value('models') === undefined) throw new Error('Apply the restored catalog before editing its models.')
-        const inherited = !creating && value('models') === undefined
+        const explicitModels = models(value('models'))
+        const inherited = !creating && !custom(entry) && explicitModels.length === 0
         const overrides = object(value('modelOverrides'))
         if (inherited && Object.keys(overrides).length) assertCatalogWritable(section, [...entry.settingsPath, 'modelOverrides'])
         const current = inherited
-          ? (await llm(ctx).listModels(entry.provider)).map(row => ({ id: row.id, ...object(overrides[row.id]) }))
-          : models(value('models'))
+          ? (await llm(ctx).listModels(entry.provider)).map(row => ({ id: row.id, ...cleanModelOverride(overrides[row.id]) }))
+          : explicitModels
         const edited = await editModelCatalog(ctx, { models: current, inputField: entry.settingsNs === 'llm-deepseek' ? 'inputModalities' : 'input',
-          reasoningLevels: custom(entry) ? modelReasoningLevels(section.schema) : [] }, signal)
+          reasoningLevels: entry.settingsNs === 'llm-pi-ai' ? modelReasoningLevels(section.schema) : [] }, signal)
         if (edited !== null && edited !== undefined) {
-          changes.set('models', edited)
-          if (inherited && Object.keys(overrides).length) changes.set('modelOverrides', undefined)
+          const sameCatalogOrder = inherited
+            && entry.settingsNs === 'llm-pi-ai'
+            && !custom(entry)
+            && edited.length === current.length
+            && edited.every((row, index) => row.id === current[index]?.id)
+          if (sameCatalogOrder) {
+            assertCatalogWritable(section, [...entry.settingsPath, 'modelOverrides'])
+            const nextOverrides: Record<string, Record<string, unknown>> = {}
+            const listedIds = new Set(current.map(row => string(row.id)))
+            for (const [id, existing] of Object.entries(overrides)) {
+              const sanitized = cleanModelOverride(existing)
+              if (!listedIds.has(id) && Object.keys(sanitized).length > 0) nextOverrides[id] = sanitized
+            }
+            for (const row of edited) {
+              const id = string(row.id)
+              const { id: _id, ...fields } = row
+              const defined = cleanModelOverride(fields)
+              if (Object.keys(defined).length > 0) nextOverrides[id] = defined
+            }
+            changes.set('modelOverrides', Object.keys(nextOverrides).length > 0 ? nextOverrides : (baseHasModelOverrides() ? {} : undefined))
+          } else {
+            stageExplicitModels(edited)
+          }
         }
         diagnostic = ''; continue
       }

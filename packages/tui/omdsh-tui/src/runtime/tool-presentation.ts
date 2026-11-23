@@ -40,6 +40,23 @@ function parsedArguments(raw: unknown): unknown {
 }
 
 interface CallRecord { event: SessionEvent; cwd: string | undefined }
+
+/**
+ * Resolve historical directory changes for tool-card path resolution.
+ * Live session directory & write boundaries follow only `workspace-root/change`
+ * via Harness `workingDirectory`; historical tool cards recognize legacy
+ * `working-directory/change` as well so old sessions still open files from the
+ * checkout where the tool actually ran.
+ */
+function historicalDirectoryChange(event: SessionEvent): string | undefined {
+  if (event.type === 'workspace-root/change') return event.data.cwd
+  if ((event as { type: string }).type === 'working-directory/change') {
+    const cwd = (event as { data?: { cwd?: unknown } }).data?.cwd
+    if (typeof cwd === 'string' && cwd.length > 0) return cwd
+  }
+  return undefined
+}
+
 function callKey(event: SessionEvent): string | undefined {
   if (event.type === 'tool/call') return event.data.callId
   if (event.type === 'tool/result') return event.data.message.source.callId
@@ -81,7 +98,8 @@ class HarnessToolPresentation implements ToolPresentationBridge {
     const records = new Map<string, CallRecord>()
     let cwd = initial
     for (const event of events) {
-      if (event.type === 'working-directory/change') cwd = event.data.cwd
+      const moved = historicalDirectoryChange(event)
+      if (moved !== undefined) cwd = moved
       if (event.type === 'tool/call' || event.type === 'tool/ptc-dispatch-start') records.set(callKey(event)!, { event, cwd })
     }
     return records
@@ -169,7 +187,8 @@ class HarnessToolPresentation implements ToolPresentationBridge {
     if (first !== undefined && first > 1) {
       for (const event of agent.session.snapshotEvents()) {
         if (event.seq >= first) break
-        if (event.type === 'working-directory/change') initial = event.data.cwd
+        const moved = historicalDirectoryChange(event)
+        if (moved !== undefined) initial = moved
       }
     }
     const callIndex = this.#records(agent, events, initial)

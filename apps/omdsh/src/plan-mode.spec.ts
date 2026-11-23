@@ -23,7 +23,7 @@ describe('Plan behavior through the shipped composition', () => {
     const args = { plan }
     const server = await startMockLlmServer({ port: 0, sequence: ['success', 'tool_call_success', 'success'], successText: 'FINISHED',
       toolName: preset === 'standard' ? 'exit_plan_mode' : 'run_code',
-      toolArguments: JSON.stringify(preset === 'standard' ? args : { description: 'Submit a plan', code: `return await tools.exit_plan_mode(${JSON.stringify(args)})` }),
+      toolArguments: JSON.stringify(preset === 'standard' ? args : { description: 'Submit a plan', code: `await tools.exit_plan_mode(${JSON.stringify(args)})` }),
     })
     const run = async (resume: boolean) => {
       const script = join(root, resume ? 'resume.mjs' : 'review.mjs')

@@ -8,7 +8,7 @@
 
 oh-my-dsh is a terminal coding agent built on [DeepSeek Harness](https://github.com/deepseek-ai/deepseek-harness). Launched as `omdsh`, it focuses on clear visual hierarchy, smooth keyboard-and-mouse controls, and reliable long-session workflows.
 
-[![CI](https://github.com/agi-fans/oh-my-dsh/actions/workflows/ci.yml/badge.svg)](https://github.com/agi-fans/oh-my-dsh/actions/workflows/ci.yml) [![npm version](https://img.shields.io/npm/v/%40agi-fans%2Foh-my-dsh?style=flat-square&logo=npm)](https://www.npmjs.com/package/@agi-fans/oh-my-dsh) [![npm downloads](https://img.shields.io/npm/dm/%40agi-fans%2Foh-my-dsh?style=flat-square&logo=npm)](https://www.npmjs.com/package/@agi-fans/oh-my-dsh) [![Node.js ^22.19 or >=24](https://img.shields.io/badge/node-%5E22.19%20%7C%7C%20%3E%3D24-339933?style=flat-square&logo=node.js)](https://nodejs.org/) [![MIT License](https://img.shields.io/npm/l/%40agi-fans%2Foh-my-dsh?style=flat-square)](https://github.com/agi-fans/oh-my-dsh/blob/main/LICENSE)
+[![CI](https://github.com/agi-fans/oh-my-dsh/actions/workflows/ci.yml/badge.svg)](https://github.com/agi-fans/oh-my-dsh/actions/workflows/ci.yml) [![npm version](https://img.shields.io/npm/v/%40agi-fans%2Foh-my-dsh?style=flat-square&logo=npm)](https://www.npmjs.com/package/@agi-fans/oh-my-dsh) [![npm downloads](https://img.shields.io/npm/dm/%40agi-fans%2Foh-my-dsh?style=flat-square&logo=npm)](https://www.npmjs.com/package/@agi-fans/oh-my-dsh) [![Node.js ^24.22.3 or >=26.13.1](https://img.shields.io/badge/node-%5E24.22.3%20%7C%7C%20%3E%3D26.13.1-339933?style=flat-square&logo=node.js)](https://nodejs.org/) [![MIT License](https://img.shields.io/npm/l/%40agi-fans%2Foh-my-dsh?style=flat-square)](https://github.com/agi-fans/oh-my-dsh/blob/main/LICENSE)
 
 [Documentation](https://omdsh.agi.fans/) · English · [简体中文](https://github.com/agi-fans/oh-my-dsh/blob/main/README.zh-CN.md)
 
@@ -20,7 +20,7 @@ A 72-second walkthrough (captured with v0.29.2) showcases omdsh across DeepSeek 
 
 ## Quick start
 
-Requirements: Node.js 22.19+ (22.x) or Node.js 24+, plus a DeepSeek account or API key.
+Requirements: Node.js 24.22.3+ (24.x) or Node.js 26.13.1+, plus a DeepSeek account or API key.
 
 ```sh
 npm install --global @agi-fans/oh-my-dsh
