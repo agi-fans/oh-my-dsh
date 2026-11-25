@@ -1,6 +1,6 @@
 ---
 name: review-oh-my-dsh
-description: Review oh-my-dsh changes for correctness, plugin ownership, terminal UX, lifecycle safety, package boundaries, and compliance with the requested behavior. Use for PR reviews, branch or working-tree reviews, pre-release audits, and requests to inspect whether an implementation fits the DeepSeek Harness architecture or oh-my-pi-inspired interaction rules.
+description: Review oh-my-dsh changes for correctness, plugin ownership, terminal UX, lifecycle safety, package boundaries, and compliance with the requested behavior. Use for PR reviews, branch or working-tree reviews, pre-release audits, and requests to inspect whether an implementation fits the DeepSeek Harness architecture or omdsh's terminal interaction rules.
 ---
 
 # Review oh-my-dsh
@@ -11,7 +11,7 @@ Report substantiated defects before suggestions. Review requests are read-only u
 
 1. Read [`AGENTS.md`](../../../AGENTS.md), [`apps/site/content/en/architecture.md`](../../../apps/site/content/en/architecture.md), and [`apps/site/content/en/plugins.md`](../../../apps/site/content/en/plugins.md).
 2. Establish the exact review scope from the user-specified base, commit, branch, or dirty worktree. Include surrounding code and both sides of changed interfaces.
-3. Treat `refs/deepseek-harness` as API and architecture evidence and `refs/oh-my-pi` as UX evidence only. Never modify or depend on them.
+3. Treat `refs/deepseek-harness` as API and architecture evidence and `refs/pi` as lineage and interaction evidence only. Never modify or depend on them.
 4. Read the originating request or specification. Separate compliance with repository standards from compliance with the requested behavior.
 
 ## Review the architecture

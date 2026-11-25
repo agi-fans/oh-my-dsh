@@ -125,7 +125,7 @@ omdsh 因此把核心限定在不可委托的部分：
 
 ## 与参考项目的关系
 
-`refs/` 下的 pi、oh-my-pi 和 deepseek-harness 是研究材料，不是模板。此外横向观察过 codex、grok-build、minimax-code 等外部项目，那只是参照，不是本项目承认的参考基线——`AGENTS.md` 只承认 `refs/` 下的三个。
+`refs/` 下的 pi 和 deepseek-harness 是研究材料，不是模板。此外横向观察过 oh-my-pi、codex、grok-build、minimax-code 等外部项目，那只是参照，不是本项目承认的参考基线——`AGENTS.md` 只承认 `refs/` 下的两个。
 
 借用它们的**判断**，不借用它们的**形状**：`!` 命令该进原地卡片而不是全屏阅读器，这是判断；卡片长什么样由 omdsh 的转录、主题和 composer 决定。一个布局在几个参考项目里一致，只是证据，不是设计——它们面对的是各自的终端约束，omdsh 的约束由本仓库的历史契约和 DeepSeek 身份决定。同理，删除一个功能要给出"读者需求已被别处覆盖"的理由，而不是"别人也没做"。
 

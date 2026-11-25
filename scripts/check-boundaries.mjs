@@ -61,7 +61,7 @@ const links = execFileSync(
 ).trim()
 if (links !== '') fail(links + '\ndependency symlink resolves into refs/')
 
-for (const dir of ['refs/deepseek-harness', 'refs/oh-my-pi', 'refs/pi']) {
+for (const dir of ['refs/deepseek-harness', 'refs/pi']) {
   if (!existsSync(new URL(`../${dir}/.git`, import.meta.url))) continue
   const dirty = execFileSync('git', ['-C', dir, 'status', '--short'], {
     cwd: root,

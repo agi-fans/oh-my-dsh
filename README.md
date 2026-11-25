@@ -84,7 +84,7 @@ pnpm smoke               # interactive PTY smoke test
 pnpm smoke:happy         # mock-LLM happy path
 ```
 
-The checkouts in `refs/deepseek-harness`, `refs/oh-my-pi`, and `refs/pi` are read-only references. Do not use them as runtime dependencies or modify them while developing omdsh.
+The checkouts in `refs/deepseek-harness` and `refs/pi` are read-only references. Do not use them as runtime dependencies or modify them while developing omdsh.
 
 ## Changelog
 

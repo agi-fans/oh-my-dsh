@@ -16,7 +16,7 @@ These instructions apply to the entire repository. More specific `AGENTS.md` fil
 ## Reference Repositories Are Read-Only
 
 - Everything under `refs/` is read-only reference material. Never edit, format, patch, generate files into, or commit changes inside any reference submodule.
-- `refs/deepseek-harness` is for API, architecture, and behavior research only. `refs/oh-my-pi` is for UX and TUI design research only. `refs/pi` is the original Pi agent harness, kept for lineage and interaction research only.
+- `refs/deepseek-harness` is for API, architecture, and behavior research only. `refs/pi` is the original Pi agent harness, kept for lineage and interaction research only.
 - Reference projects must never participate in dependency resolution, TypeScript project references, path aliases, workspace membership, builds, tests, runtime execution, package patches, or generated symlinks.
 - Do not import files from `refs/`, execute scripts from `refs/`, or add `link:refs/...`, `file:refs/...`, `paths` mappings, or package-manager overrides that point into `refs/`.
 - When upstream behavior is useful, reimplement or adapt it within an omdsh-owned package. Do not solve a missing API by modifying a reference checkout.
@@ -35,8 +35,8 @@ These instructions apply to the entire repository. More specific `AGENTS.md` fil
 
 ## TUI and UX Rules
 
-- Use oh-my-pi as a design reference, not as source code or a dependency. Preserve omdsh's DeepSeek identity instead of cloning branding verbatim.
-- omdsh develops its own terminal presentation system. `refs/deepseek-harness`, `refs/oh-my-pi`, and `refs/pi` are research inputs, not templates to reproduce: when all three suggest the same pattern, that is evidence and not a design. Do not ship a reference project's UI model wholesale. Absorb a borrowed idea only after deciding what omdsh's terminal constraints and existing chrome already answer, and reject the parts that duplicate or contradict them.
+- Preserve omdsh's DeepSeek identity instead of cloning a reference project's branding verbatim.
+- omdsh develops its own terminal presentation system. `refs/deepseek-harness` and `refs/pi` are research inputs, not templates to reproduce: when both suggest the same pattern, that is evidence and not a design. Do not ship a reference project's UI model wholesale. Absorb a borrowed idea only after deciding what omdsh's terminal constraints and existing chrome already answer, and reject the parts that duplicate or contradict them.
 - Prefer omdsh-native seams over a reference project's abstraction shape. A fold, group, or summary model belongs in the omdsh renderer unless a genuine second consumer appears.
 - The startup header uses the DeepSeek logo and the slogan `Into the Unknown`. Preserve the logo's source aspect ratio and distinctive top detail when converting it for terminal cells.
 - The composer uses `🐳` as its only label. Keep a fixed, unframed status footer directly below it: model/reasoning and workspace/Git metadata on the first line, customizable session telemetry on the second. Only the widest density may add a third line, for the session's own totals, and it appears only when the second line is whole.
@@ -108,7 +108,6 @@ GitHub Actions runs this set, plus `pnpm check:boundaries`, on pull requests and
 rg -n 'refs/deepseek-harness|link:refs' package.json pnpm-workspace.yaml pnpm-lock.yaml tsconfig.base.json apps packages scripts --glob '!**/*.md' --glob '!apps/omdsh/src/fixtures/**/*.jsonl'
 find node_modules apps packages -type l -lname '*refs/deepseek-harness*' -print
 git -C refs/deepseek-harness status --short
-git -C refs/oh-my-pi status --short
 git -C refs/pi status --short
 ```
 

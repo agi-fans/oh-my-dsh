@@ -12,7 +12,7 @@ oh-my-dsh builds on published **DeepSeek Harness (DSH)** packages: sessions, mod
 - **Product packages:**
 - `apps/omdsh` (`@agi-fans/oh-my-dsh`): CLI parsing, boot composition, `omdsh doctor`, `omdsh exec`, `omdsh plugin` installer, and default profile manifest.
 - `packages/tui/omdsh-tui` (`@agi-fans/dsh-tui`): reusable terminal UI suite (service definition, local terminal provider, session runtime, slash commands, Markdown/tool rendering, and interactive views).
-- **Read-only references:** `refs/deepseek-harness`, `refs/oh-my-pi`, and `refs/pi` are research-only and never participate in resolution, builds, tests, or runtime execution.
+- **Read-only references:** `refs/deepseek-harness` and `refs/pi` are research-only and never participate in resolution, builds, tests, or runtime execution.
 
 ```text
 apps/omdsh/                         @agi-fans/oh-my-dsh

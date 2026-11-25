@@ -12,7 +12,7 @@ oh-my-dsh 构建在已发布的 **DeepSeek Harness（DSH）** 软件包之上：
 - **产品包**：
 - `apps/omdsh`（`@agi-fans/oh-my-dsh`）：CLI 参数解析、启动引导、`omdsh doctor`、`omdsh exec`、`omdsh plugin` 安装器与运行时组合配置。
 - `packages/tui/omdsh-tui`（`@agi-fans/dsh-tui`）：可复用的终端 UI 套件（服务定义、本地终端 Provider、会话运行时、命令插件、Markdown/工具渲染与交互视图）。
-- **只读参考目录**：`refs/deepseek-harness`、`refs/oh-my-pi`、`refs/pi` 仅作设计与 API 研究参考，绝不参与依赖解析、构建、测试或运行。
+- **只读参考目录**：`refs/deepseek-harness` 与 `refs/pi` 仅作设计与 API 研究参考，绝不参与依赖解析、构建、测试或运行。
 
 ```text
 apps/omdsh/                         @agi-fans/oh-my-dsh
